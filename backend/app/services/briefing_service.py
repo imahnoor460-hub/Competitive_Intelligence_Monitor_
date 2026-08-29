@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -21,6 +22,15 @@ from app.services.llm.prompts import UNTRUSTED_CONTENT_PREAMBLE, wrap_untrusted
 __all__ = ["generate_briefing", "run_briefing_job", "BriefingDraft", "NoMatchingChangeLogs"]
 
 logger = logging.getLogger(__name__)
+
+# job.error is rendered straight into the browser, so scrub any API key a
+# provider error might echo back before it is persisted.
+_SECRET_PATTERN = re.compile(r"nvapi-[A-Za-z0-9_\-]+")
+_MAX_ERROR_CHARS = 500
+
+
+def _safe_error(message: str) -> str:
+    return _SECRET_PATTERN.sub("nvapi-***", message.strip())[:_MAX_ERROR_CHARS]
 
 
 class NoMatchingChangeLogs(Exception):
@@ -171,13 +181,17 @@ def run_briefing_job(job_id: int) -> None:
             db.rollback()
             job = db.query(BriefingJob).filter(BriefingJob.id == job_id).first()
             job.status = BriefingJobStatus.failed
-            job.error = str(exc)
-        except Exception:  # noqa: BLE001 — any unexpected failure must still resolve the job, not hang it
+            job.error = _safe_error(str(exc))
+        except Exception as exc:  # noqa: BLE001 — any unexpected failure must still resolve the job, not hang it
             logger.exception("Briefing job %s failed unexpectedly", job_id)
             db.rollback()
             job = db.query(BriefingJob).filter(BriefingJob.id == job_id).first()
             job.status = BriefingJobStatus.failed
-            job.error = "Briefing generation failed unexpectedly"
+            # Record what actually broke (provider auth/quota/model errors,
+            # unparseable model output) rather than a generic message — the
+            # frontend surfaces job.error verbatim, and a briefing that
+            # silently "isn't generated" is undebuggable without it.
+            job.error = _safe_error(f"{type(exc).__name__}: {exc}")
 
         job.finished_at = datetime.utcnow()
         db.commit()
