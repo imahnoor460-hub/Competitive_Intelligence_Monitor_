@@ -135,11 +135,13 @@ def find_category_listing_url(url: str, category: str) -> str | None:
             try:
                 page = browser.new_page()
 
-                page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=_GOTO_TIMEOUT_MS,
-                )
+                try:
+                    resp = page.goto(url, wait_until="commit", timeout=60_000)
+                    logging.info("goto returned %s", resp.status if resp else None)
+                except PlaywrightTimeoutError:
+                    logging.error("timeout; page.url=%s title=%s",
+                                  page.url, page.title())
+                    raise
 
                 page.wait_for_timeout(_SETTLE_MS)
 
