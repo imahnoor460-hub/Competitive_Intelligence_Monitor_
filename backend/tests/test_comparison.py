@@ -1,6 +1,8 @@
 import app.services.check_service as check_service
 from app.services.llm.client import LLMCallResult
+from app.services.llm.baseline_summary import BaselineFact, BaselineSummaryResult
 from app.services.llm.scoring import MaterialityResult
+from app.services.site_summary_service import SiteSummaryDraft
 
 
 def _register_login(client, email):
@@ -13,14 +15,38 @@ def _register_login(client, email):
 
 
 class _ScoringClient:
+    """Fake client for the surface-check pipeline.
+
+    A check does not make only the scoring call: capturing a surface's first
+    snapshot also runs summarize_baseline_snapshot (BaselineSummaryResult)
+    and generate_site_summary (SiteSummaryDraft). Returning a
+    MaterialityResult for those too used to blow up on `result.facts` in
+    check_service._apply_baseline_summary — outside that function's
+    try/except, so it surfaced as a 500 rather than degrading. Dispatch on
+    response_model and hand each caller the shape it asked for.
+    """
+
     def __init__(self, score, classification):
         self._score = score
         self._classification = classification
 
     def complete(self, system, user, response_model):
+        if response_model is MaterialityResult:
+            value = MaterialityResult(
+                score=self._score, classification=self._classification, rationale="x"
+            )
+        elif response_model is BaselineSummaryResult:
+            value = BaselineSummaryResult(
+                headline="Baseline captured",
+                facts=[BaselineFact(label="Plan A", value="$10")],
+            )
+        elif response_model is SiteSummaryDraft:
+            value = SiteSummaryDraft(categories=["Pricing"], current_offers=[])
+        else:
+            raise AssertionError(f"unexpected response_model {response_model!r}")
+
         return LLMCallResult(
-            value=MaterialityResult(score=self._score, classification=self._classification, rationale="x"),
-            model="fake-model", prompt_tokens=10, completion_tokens=5,
+            value=value, model="fake-model", prompt_tokens=10, completion_tokens=5,
         )
 
     def embed(self, texts):
