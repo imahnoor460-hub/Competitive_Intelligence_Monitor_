@@ -60,8 +60,10 @@ def test_briefing_generate_returns_429_once_limit_exceeded(client, monkeypatch):
     second = client.post(url, json=body, headers=headers)
     third = client.post(url, json=body, headers=headers)
 
-    assert first.status_code == 200
-    assert second.status_code == 200
+    # 202: generate-now enqueues a job and returns the job id — the
+    # briefing itself is generated asynchronously.
+    assert first.status_code == 202
+    assert second.status_code == 202
     assert third.status_code == 429
 
 
@@ -107,6 +109,6 @@ def test_rate_limit_is_per_workspace_not_global(client, monkeypatch):
     exhausted_a = client.post(url_a, json={"change_log_ids": [change_log_id_a]}, headers=headers_a)
     first_b = client.post(url_b, json={"change_log_ids": [change_log_id_b]}, headers=headers_b)
 
-    assert first_a.status_code == 200
+    assert first_a.status_code == 202
     assert exhausted_a.status_code == 429
-    assert first_b.status_code == 200
+    assert first_b.status_code == 202

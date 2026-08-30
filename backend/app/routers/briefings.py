@@ -7,7 +7,13 @@ from app.models.briefing_job import BriefingJob, BriefingJobStatus
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.briefing import GenerateBriefingRequest, BriefingResponse, BriefingJobResponse
-from app.dependencies import get_current_user, get_current_workspace, require_role, rate_limit
+from app.dependencies import (
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    enforce_rate_limit,
+)
+from app.services.budget_service import check_budget, BudgetExceededError
 from app.services.llm.factory import get_llm_client
 from app.services.briefing_service import run_briefing_job
 
@@ -28,8 +34,7 @@ def generate_now(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
-    _rate_limit: None = Depends(rate_limit("briefing-generate"))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
 ):
 
     llm_client = get_llm_client()
@@ -38,6 +43,23 @@ def generate_now(
             status_code=400,
             detail="No LLM is configured for this deployment"
         )
+
+    # Both guards run here, synchronously, rather than inside the queued
+    # job: the job's own failure is invisible to this request, which has
+    # already returned 202 by the time it runs, so a caller over budget
+    # would be told the work was accepted and only find out otherwise by
+    # polling the job. generate_briefing() still calls check_budget() of
+    # its own — spend can cross the cap between enqueue and execution —
+    # but that one is a backstop, not the caller-facing answer.
+    #
+    # Budget is checked before the rate limit so being over budget doesn't
+    # also burn a rate-limit token for work that was never going to run.
+    try:
+        check_budget(db, workspace_id)
+    except BudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc))
+
+    enforce_rate_limit("briefing-generate", workspace_id)
 
     job = BriefingJob(
         workspace_id=workspace_id,

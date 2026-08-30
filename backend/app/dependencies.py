@@ -93,6 +93,30 @@ def require_role(*roles: WorkspaceRole):
     return _check
 
 
+def enforce_rate_limit(
+    scope: str,
+    workspace_id: int,
+    limit: int | None = None,
+    window_seconds: float | None = None,
+) -> None:
+    """The rate-limit guard as a plain call, for endpoints that must run it
+    at a specific point in the handler rather than as a dependency — a
+    dependency always fires before the body, which is wrong when another
+    guard has to be evaluated first (see briefings.generate_now, where the
+    budget is checked before a rate-limit token is spent).
+    """
+
+    key = f"{scope}:{workspace_id}"
+    try:
+        check_rate_limit(
+            key,
+            limit if limit is not None else settings.rate_limit_llm_requests,
+            window_seconds if window_seconds is not None else settings.rate_limit_llm_window_seconds,
+        )
+    except RateLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
+
 def rate_limit(scope: str, limit: int | None = None, window_seconds: float | None = None):
     """FastAPI dependency factory — each `scope` gets its own bucket per
     workspace, so a burst against one LLM-triggering endpoint doesn't eat
@@ -103,14 +127,6 @@ def rate_limit(scope: str, limit: int | None = None, window_seconds: float | Non
     def _check(
         membership: WorkspaceMember = Depends(get_current_workspace)
     ) -> None:
-        key = f"{scope}:{membership.workspace_id}"
-        try:
-            check_rate_limit(
-                key,
-                limit if limit is not None else settings.rate_limit_llm_requests,
-                window_seconds if window_seconds is not None else settings.rate_limit_llm_window_seconds,
-            )
-        except RateLimitExceededError as exc:
-            raise HTTPException(status_code=429, detail=str(exc))
+        enforce_rate_limit(scope, membership.workspace_id, limit, window_seconds)
 
     return _check
