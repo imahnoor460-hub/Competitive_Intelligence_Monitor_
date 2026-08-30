@@ -41,17 +41,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          
-      - name: Install Playwright browsers
-        run: playwright install --with-deps chromium 
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
       - name: Enable pgvector extension
         run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d ci_monitor -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=postgres psql -h localhost -U postgres -d ci_monitor \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
+            
       - name: Alembic upgrade head
         run: alembic upgrade head
 
