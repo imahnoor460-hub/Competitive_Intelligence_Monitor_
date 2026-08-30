@@ -1,8 +1,13 @@
 import json
+import logging
 import re
 
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright, Error as PlaywrightError
+from playwright.sync_api import (
+    sync_playwright,
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from app.services.noise_filter import strip_noise
 
@@ -90,11 +95,13 @@ def capture_rendered_text(url: str) -> str:
 
             try:
                 page = browser.new_page()
-                page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=_GOTO_TIMEOUT_MS,
-                )
+                try:
+                    resp = page.goto(url, wait_until="commit", timeout=60_000)
+                    logging.info("goto returned %s", resp.status if resp else None)
+                except PlaywrightTimeoutError:
+                    logging.error("timeout; page.url=%s title=%s",
+                                  page.url, page.title())
+                    raise
                 page.wait_for_timeout(_SETTLE_MS)
                 html = page.content()
             finally:

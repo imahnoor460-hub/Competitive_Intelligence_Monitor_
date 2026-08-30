@@ -1,7 +1,12 @@
+import logging
 import re
 from urllib.parse import urlsplit, urlunsplit
 
-from playwright.sync_api import sync_playwright, Error as PlaywrightError
+from playwright.sync_api import (
+    sync_playwright,
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from app.models.surface import SurfaceType
 
@@ -133,7 +138,13 @@ def discover_surfaces(homepage_url: str) -> list[tuple[SurfaceType, str | None, 
             browser = p.chromium.launch()
             try:
                 page = browser.new_page()
-                page.goto(homepage_url, wait_until="domcontentloaded", timeout=_GOTO_TIMEOUT_MS)
+                try:
+                    resp = page.goto(homepage_url, wait_until="commit", timeout=60_000)
+                    logging.info("goto returned %s", resp.status if resp else None)
+                except PlaywrightTimeoutError:
+                    logging.error("timeout; page.url=%s title=%s",
+                                  page.url, page.title())
+                    raise
                 page.wait_for_timeout(_SETTLE_MS)
                 pairs = page.eval_on_selector_all(
                     _NAV_FOOTER_SELECTOR,

@@ -1,13 +1,24 @@
+import logging
 from datetime import datetime
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright, Error as PlaywrightError
+from playwright.sync_api import (
+    sync_playwright,
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from app.core.config import settings
 
 __all__ = ["capture_screenshot", "ScreenshotError"]
 
 _GOTO_TIMEOUT_MS = 15_000
+
+# `wait_until="commit"` returns as soon as the response headers arrive, well
+# before anything has painted, so unlike the other two call sites (which
+# already settle before reading the DOM) this one needs its own settle —
+# without it the PNG is a blank viewport.
+_SETTLE_MS = 5_000
 
 
 class ScreenshotError(Exception):
@@ -31,7 +42,14 @@ def capture_screenshot(url: str, surface_id: int) -> str:
             browser = p.chromium.launch()
             try:
                 page = browser.new_page()
-                page.goto(url, wait_until="networkidle", timeout=_GOTO_TIMEOUT_MS)
+                try:
+                    resp = page.goto(url, wait_until="commit", timeout=60_000)
+                    logging.info("goto returned %s", resp.status if resp else None)
+                except PlaywrightTimeoutError:
+                    logging.error("timeout; page.url=%s title=%s",
+                                  page.url, page.title())
+                    raise
+                page.wait_for_timeout(_SETTLE_MS)
                 page.screenshot(path=str(path), full_page=True)
             finally:
                 browser.close()
