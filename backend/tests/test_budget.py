@@ -1,4 +1,5 @@
 import app.routers.briefings as briefings_router
+import app.services.briefing_service as briefing_service
 import app.routers.battlecards as battlecards_router
 import app.services.battlecard_service as battlecard_service
 import app.services.check_service as check_service
@@ -6,6 +7,17 @@ from app.services.llm.client import LLMCallResult
 from app.services.briefing_service import BriefingDraft
 from app.services.battlecard_service import BattlecardDraft
 from app.services.llm.scoring import MaterialityResult
+
+
+def _patch_briefing_llm(monkeypatch):
+    """Both names: the router's get_llm_client only gates the 400, while the
+    briefing itself is generated inside the queued job, which resolves its
+    client from app.services.briefing_service.
+    """
+
+    fake = _FakeBriefingLLMClient()
+    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: fake)
+    monkeypatch.setattr(briefing_service, "get_llm_client", lambda: fake)
 
 
 def _register_login(client, email):
@@ -104,7 +116,7 @@ def test_briefing_generation_blocked_with_402_when_over_budget(client, monkeypat
     client.put(
         f"/workspaces/{workspace['id']}/budget/", json={"monthly_cap_usd": 0.0}, headers=headers
     )
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
 
     res = client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",
@@ -206,7 +218,7 @@ def test_budget_spend_by_purpose_breaks_down_real_usage(client, monkeypatch):
     empty = client.get(f"/workspaces/{workspace['id']}/budget/", headers=headers).json()
     assert empty["spend_by_purpose"] == {}
 
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
     client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",
         json={"change_log_ids": [change_log_id]},

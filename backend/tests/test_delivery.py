@@ -1,6 +1,7 @@
 import app.services.delivery.slack_connector as slack_connector
 import app.services.delivery.email_connector as email_connector
 import app.routers.briefings as briefings_router
+import app.services.briefing_service as briefing_service
 from app.services.delivery.base import DeliveryPayload
 from app.services.delivery.slack_connector import SlackConnector
 from app.services.delivery.email_connector import EmailConnector
@@ -116,6 +117,19 @@ class _FakeBriefingLLMClient:
         raise NotImplementedError
 
 
+def _patch_briefing_llm(monkeypatch):
+    """The briefing is generated inside the queued job (run_briefing_job),
+    which resolves its client from app.services.briefing_service — the
+    router's own get_llm_client only answers "is an LLM configured at all"
+    for the 400. Patching the router alone leaves the job calling the real
+    provider, so both names have to point at the fake.
+    """
+
+    client = _FakeBriefingLLMClient()
+    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: client)
+    monkeypatch.setattr(briefing_service, "get_llm_client", lambda: client)
+
+
 def _register_login(client, email):
     client.post(
         "/auth/register",
@@ -183,7 +197,7 @@ def test_urgent_briefing_delivers_immediately_on_approval(client, monkeypatch):
     workspace, change_log_id = _seed_workspace_with_scored_change(client, owner_headers, monkeypatch)
     posted = _configure_slack(client, workspace["id"], owner_headers, monkeypatch)
 
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
     briefing = client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",
         json={"audience": "all", "digest_type": "urgent", "change_log_ids": [change_log_id]},
@@ -213,7 +227,7 @@ def test_daily_briefing_waits_for_digest_not_delivered_on_approval(client, monke
     workspace, change_log_id = _seed_workspace_with_scored_change(client, owner_headers, monkeypatch)
     posted = _configure_slack(client, workspace["id"], owner_headers, monkeypatch)
 
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
     briefing = client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",
         json={"audience": "all", "digest_type": "daily", "change_log_ids": [change_log_id]},
@@ -243,7 +257,7 @@ def test_deliver_digest_bundles_and_marks_delivered(client, monkeypatch, db_sess
     workspace, change_log_id = _seed_workspace_with_scored_change(client, owner_headers, monkeypatch)
     posted = _configure_slack(client, workspace["id"], owner_headers, monkeypatch)
 
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
     briefing = client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",
         json={"audience": "all", "digest_type": "daily", "change_log_ids": [change_log_id]},
@@ -273,7 +287,7 @@ def test_deliver_digest_bundles_and_marks_delivered(client, monkeypatch, db_sess
 def test_approval_without_any_integration_leaves_briefing_approved(client, monkeypatch):
     owner_headers = _register_login(client, "owner@example.com")
     workspace, change_log_id = _seed_workspace_with_scored_change(client, owner_headers, monkeypatch)
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
 
     briefing = client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",
@@ -306,7 +320,7 @@ def test_approval_succeeds_even_if_delivery_raises_unexpectedly(client, monkeypa
 
     owner_headers = _register_login(client, "owner@example.com")
     workspace, change_log_id = _seed_workspace_with_scored_change(client, owner_headers, monkeypatch)
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
 
     client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",

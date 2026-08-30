@@ -9,7 +9,9 @@ workspace_id returning A's data anyway.
 """
 
 import app.routers.briefings as briefings_router
+import app.services.briefing_service as briefing_service
 import app.routers.battlecards as battlecards_router
+import app.services.battlecard_service as battlecard_service
 import app.services.check_service as check_service
 from app.services.llm.client import LLMCallResult
 from app.services.briefing_service import BriefingDraft
@@ -87,7 +89,11 @@ def _seed_full_workspace(client, monkeypatch, email, name):
     check_res = client.post(check_url, headers=headers).json()
     change_log_id = check_res["change_log_id"]
 
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    # Both names — the briefing is generated inside the queued job, which
+    # resolves its client from app.services.briefing_service, not the router.
+    fake_llm = _FakeBriefingLLMClient()
+    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: fake_llm)
+    monkeypatch.setattr(briefing_service, "get_llm_client", lambda: fake_llm)
     briefing = client.post(
         f"/workspaces/{wid}/briefings/generate-now",
         json={"change_log_ids": [change_log_id]},
@@ -95,7 +101,11 @@ def _seed_full_workspace(client, monkeypatch, email, name):
     ).json()
     approval = client.get(f"/workspaces/{wid}/approvals/", headers=headers).json()[0]
 
-    monkeypatch.setattr(battlecards_router, "get_llm_client", lambda: _FakeBattlecardLLMClient())
+    # Both names — the proposal is drafted inside the queued job, which
+    # resolves its client from app.services.battlecard_service.
+    fake_bc = _FakeBattlecardLLMClient()
+    monkeypatch.setattr(battlecards_router, "get_llm_client", lambda: fake_bc)
+    monkeypatch.setattr(battlecard_service, "get_llm_client", lambda: fake_bc)
     battlecard_update = client.post(
         f"/workspaces/{wid}/competitors/{cid}/battlecard/updates",
         json={"change_log_ids": [change_log_id]},

@@ -1,8 +1,20 @@
 import app.routers.briefings as briefings_router
+import app.services.briefing_service as briefing_service
 import app.services.check_service as check_service
 from app.core.config import settings
 from app.services.llm.client import LLMCallResult
 from app.services.briefing_service import BriefingDraft
+
+
+def _patch_briefing_llm(monkeypatch):
+    """Both names: the router's get_llm_client only gates the 400, while the
+    briefing itself is generated inside the queued job, which resolves its
+    client from app.services.briefing_service.
+    """
+
+    fake = _FakeBriefingLLMClient()
+    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: fake)
+    monkeypatch.setattr(briefing_service, "get_llm_client", lambda: fake)
 
 
 def _register_login(client, email):
@@ -51,7 +63,7 @@ def test_briefing_generate_returns_429_once_limit_exceeded(client, monkeypatch):
 
     headers = _register_login(client, "owner@example.com")
     workspace, change_log_id = _seed_workspace_with_change_log(client, headers, monkeypatch)
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
 
     url = f"/workspaces/{workspace['id']}/briefings/generate-now"
     body = {"change_log_ids": [change_log_id]}
@@ -70,7 +82,7 @@ def test_briefing_generate_returns_429_once_limit_exceeded(client, monkeypatch):
 def test_rate_limit_scopes_are_independent_per_endpoint(client, monkeypatch):
     headers = _register_login(client, "owner@example.com")
     workspace, change_log_id = _seed_workspace_with_change_log(client, headers, monkeypatch)
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
 
     # Lower the limit only after seeding — seeding itself hits the
     # surface-check scope twice (baseline + change), which a limit of 1
@@ -97,7 +109,7 @@ def test_rate_limit_is_per_workspace_not_global(client, monkeypatch):
     headers_b = _register_login(client, "b@example.com")
     workspace_a, change_log_id_a = _seed_workspace_with_change_log(client, headers_a, monkeypatch)
     workspace_b, change_log_id_b = _seed_workspace_with_change_log(client, headers_b, monkeypatch)
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    _patch_briefing_llm(monkeypatch)
 
     monkeypatch.setattr(settings, "rate_limit_llm_requests", 1)
     monkeypatch.setattr(settings, "rate_limit_llm_window_seconds", 60.0)

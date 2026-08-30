@@ -89,6 +89,23 @@ def client(db_session, monkeypatch):
     # themselves with a fake client, which overrides this default.
     monkeypatch.setattr("app.services.check_service.get_llm_client", lambda: None)
 
+    # Same reasoning for briefing generation, which runs in a queued
+    # BackgroundTask (briefing_service.run_briefing_job) and resolves its
+    # client from app.services.briefing_service — NOT from the router. A
+    # test that patched only routers.briefings.get_llm_client therefore
+    # still reached the real provider inside the job: slow, billable, and
+    # non-deterministic (the assertion would be made against whatever prose
+    # the live model happened to return). Default this to "no LLM" too, so
+    # forgetting the job-side patch fails the job loudly instead of quietly
+    # going to the network; tests exercising briefing generation patch both
+    # names with a fake.
+    monkeypatch.setattr("app.services.briefing_service.get_llm_client", lambda: None)
+
+    # And again for battlecard-update proposals, which have the same shape:
+    # run_battlecard_update_job is a queued BackgroundTask resolving its
+    # client from app.services.battlecard_service, not from the router.
+    monkeypatch.setattr("app.services.battlecard_service.get_llm_client", lambda: None)
+
     # generate_site_summary (triggered automatically after every check that
     # finds new content, and from the manual site-summary refresh) always
     # tries a real Playwright render first. Without a default here, any test

@@ -64,6 +64,7 @@ def test_export_change_logs_docx_returns_valid_document(client, monkeypatch):
 
 def test_export_briefing_pdf(client, monkeypatch):
     import app.routers.briefings as briefings_router
+    import app.services.briefing_service as briefing_service
     from app.services.briefing_service import BriefingDraft
 
     headers = _register_login(client, "owner@example.com")
@@ -79,7 +80,11 @@ def test_export_briefing_pdf(client, monkeypatch):
         def embed(self, texts):
             raise NotImplementedError
 
-    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: _FakeBriefingLLMClient())
+    # Both names — the briefing is generated inside the queued job, which
+    # resolves its client from app.services.briefing_service, not the router.
+    fake_llm = _FakeBriefingLLMClient()
+    monkeypatch.setattr(briefings_router, "get_llm_client", lambda: fake_llm)
+    monkeypatch.setattr(briefing_service, "get_llm_client", lambda: fake_llm)
     briefing = client.post(
         f"/workspaces/{workspace['id']}/briefings/generate-now",
         json={"audience": "all", "digest_type": "urgent", "change_log_ids": [change_log_id]},

@@ -76,6 +76,7 @@ def _seed_fully_loaded_competitor(client, monkeypatch, headers, workspace_id):
     """
     import app.services.check_service as check_service
     import app.routers.battlecards as battlecards_router
+    import app.services.battlecard_service as battlecard_service
     import app.services.site_summary_service as site_summary_service
     import app.routers.site_summary as site_summary_router
     import app.services.traffic_service as traffic_service
@@ -107,7 +108,13 @@ def _seed_fully_loaded_competitor(client, monkeypatch, headers, workspace_id):
         headers=headers,
     )
 
-    monkeypatch.setattr(battlecards_router, "get_llm_client", lambda: _ScoringClient())
+    # Both names — the proposal is drafted inside the queued job, which
+    # resolves its client from app.services.battlecard_service. Without the
+    # job-side patch no BattlecardUpdate/ApprovalItem rows get created, and
+    # the cascade assertions below would pass vacuously.
+    bc_client = _ScoringClient()
+    monkeypatch.setattr(battlecards_router, "get_llm_client", lambda: bc_client)
+    monkeypatch.setattr(battlecard_service, "get_llm_client", lambda: bc_client)
     client.post(
         f"/workspaces/{workspace_id}/competitors/{competitor_id}/battlecard/updates",
         json={"change_log_ids": [change_log_id]},
