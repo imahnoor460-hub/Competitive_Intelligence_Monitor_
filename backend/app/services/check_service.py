@@ -263,6 +263,14 @@ def _apply_baseline_summary(db: Session, surface: Surface, snapshot: Snapshot) -
     competitor = db.query(Competitor).filter(Competitor.id == surface.competitor_id).first()
     surface_label = f"{competitor.name} — {surface.surface_type.value}" if competitor else surface.url
 
+    # Reading the result is inside the try, not after it: a provider that
+    # returns a malformed or wrong-shaped object fails on attribute access,
+    # not inside summarize_baseline_snapshot, and that used to escape this
+    # guard and turn a best-effort summary into a 500 on the whole check.
+    # Both fields are read into locals first so a failure half-way can't
+    # leave a partially-updated snapshot pending in the session; db.commit()
+    # stays outside, where a genuine database failure still surfaces
+    # instead of being swallowed as "summary unavailable".
     try:
         result = summarize_baseline_snapshot(
             db,
@@ -271,12 +279,17 @@ def _apply_baseline_summary(db: Session, surface: Surface, snapshot: Snapshot) -
             surface_label,
             snapshot.text_content,
         )
+
+        headline = result.headline or None
+        facts = [fact.model_dump() for fact in result.facts] or None
     except Exception as exc:  # noqa: BLE001 — deliberately broad, see docstring
-        logger.warning("Baseline summary failed for surface %s: %s", surface.id, exc)
+        logger.warning(
+            "Baseline summary failed for surface %s: %s", surface.id, exc, exc_info=True
+        )
         return
 
-    snapshot.headline = result.headline or None
-    snapshot.facts = [fact.model_dump() for fact in result.facts] or None
+    snapshot.headline = headline
+    snapshot.facts = facts
     db.commit()
 
 
