@@ -12,7 +12,6 @@ import {
   Competitor,
   CompetitorSummary,
   OwnSite,
-  Surface,
 } from "@/lib/types";
 import ClassificationBadge, { classificationColor } from "@/components/ui/ClassificationBadge";
 import DonutChart from "@/components/charts/DonutChart";
@@ -151,25 +150,17 @@ export default function DashboardPage() {
         setOwnSiteSummary(null);
       }
 
-      const perCompetitorSurfaces = await Promise.all(
-        comps.map(async (c: Competitor) => {
-          const surfaces: Surface[] = await apiFetch(
-            `/workspaces/${wsId}/competitors/${c.id}/surfaces/`
-          );
-          return { competitor: c, surfaces };
-        })
-      );
-
-      const runResults = await Promise.all(
-        perCompetitorSurfaces.flatMap(({ competitor, surfaces }) =>
-          surfaces.map((s: Surface) =>
-            apiFetch(
-              `/workspaces/${wsId}/competitors/${competitor.id}/surfaces/${s.id}/check-runs`
-            ).catch(() => [])
-          )
-        )
-      );
-      setCheckRuns(runResults.flat());
+      // One workspace-wide request for the latest run per surface, replacing
+      // a fan-out of one /surfaces/ request per competitor plus one
+      // /check-runs request per surface — 80+ concurrent requests against a
+      // 15-connection pool on a workspace with a couple of auto-discovered
+      // competitors, which is what made this page time out. The surface lists
+      // were only ever fetched to build those per-surface URLs; nothing on
+      // this page renders them.
+      const latestRuns: CheckRun[] = await apiFetch(
+        `/workspaces/${wsId}/check-runs/latest`
+      ).catch(() => []);
+      setCheckRuns(latestRuns);
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
     } finally {

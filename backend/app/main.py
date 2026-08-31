@@ -30,6 +30,7 @@ from app.routers import traffic
 from app.routers import own_site
 from app.routers import site_summary
 from app.routers import category_price
+from app.routers import check_runs
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -82,6 +83,7 @@ app.include_router(traffic.router)
 app.include_router(own_site.router)
 app.include_router(site_summary.router)
 app.include_router(category_price.router)
+app.include_router(check_runs.router)
 @app.get("/")
 def home():
     return {
