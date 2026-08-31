@@ -39,6 +39,19 @@ interface CheckRun {
   status: "running" | "success" | "failed";
 }
 
+interface LatestCheckRuns {
+  // Current state of each surface — one run per surface.
+  latest: CheckRun[];
+  // Counts over the workspace's entire run history, which `latest` does not
+  // cover. The crawl success rate has always been measured across every run
+  // ever recorded, so it is computed from these rather than from `latest`;
+  // using `latest` would report a surface that failed four times and then
+  // recovered as 100% healthy.
+  total_runs: number;
+  finished_runs: number;
+  successful_runs: number;
+}
+
 // Own site has no user-facing "name" field (backend stores it as a hidden
 // competitor named "Your website") — derive something readable from the
 // URL instead so the prominent badge shows the actual site, not a label.
@@ -100,7 +113,7 @@ export default function DashboardPage() {
   const [changeLogs, setChangeLogs] = useState<ChangeLog[]>([]);
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
   const [briefings, setBriefings] = useState<Briefing[]>([]);
-  const [checkRuns, setCheckRuns] = useState<CheckRun[]>([]);
+  const [checkRunData, setCheckRunData] = useState<LatestCheckRuns | null>(null);
   const [ownSite, setOwnSite] = useState<OwnSite | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -157,10 +170,10 @@ export default function DashboardPage() {
       // competitors, which is what made this page time out. The surface lists
       // were only ever fetched to build those per-surface URLs; nothing on
       // this page renders them.
-      const latestRuns: CheckRun[] = await apiFetch(
+      const latestCheckRuns: LatestCheckRuns | null = await apiFetch(
         `/workspaces/${wsId}/check-runs/latest`
-      ).catch(() => []);
-      setCheckRuns(latestRuns);
+      ).catch(() => null);
+      setCheckRunData(latestCheckRuns);
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
     } finally {
@@ -253,12 +266,15 @@ export default function DashboardPage() {
   );
 
   const crawlSuccessRate = useMemo(() => {
-    if (checkRuns.length === 0) return null;
-    const finished = checkRuns.filter((r) => r.status !== "running");
-    if (finished.length === 0) return null;
-    const successes = finished.filter((r) => r.status === "success").length;
-    return (successes / finished.length) * 100;
-  }, [checkRuns]);
+    if (checkRunData === null) return null;
+    // The same two guards as when this counted rows of the full per-surface
+    // history: no runs at all, and no *finished* runs, both mean there is
+    // nothing to report yet. A run still in progress has no outcome, so it
+    // stays out of the denominator.
+    if (checkRunData.total_runs === 0) return null;
+    if (checkRunData.finished_runs === 0) return null;
+    return (checkRunData.successful_runs / checkRunData.finished_runs) * 100;
+  }, [checkRunData]);
 
   const briefingApprovalRate = useMemo(() => {
     const decided = briefings.filter(

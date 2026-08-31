@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.check_run import CheckRun
+from app.models.check_run import CheckRun, CheckRunStatus
 from app.models.competitor import Competitor
 from app.models.surface import Surface
 from app.models.workspace_member import WorkspaceMember
-from app.schemas.check_run import CheckRunResponse
+from app.schemas.check_run import LatestCheckRunsResponse
 from app.dependencies import get_current_workspace
 
 router = APIRouter(
@@ -18,7 +18,7 @@ router = APIRouter(
 
 @router.get(
     "/latest",
-    response_model=list[CheckRunResponse]
+    response_model=LatestCheckRunsResponse
 )
 def list_latest_check_runs(
     workspace_id: int,
@@ -40,6 +40,26 @@ def list_latest_check_runs(
     two runs of the same surface can share a timestamp at second resolution.
     """
 
+    # Aggregates span the workspace's whole run history, not just `latest`:
+    # the dashboard's crawl success rate has always been measured across every
+    # run ever recorded, so returning only the latest per surface would have
+    # silently redefined a user-facing number. Same joins and the same
+    # workspace filter as the ranking below, so isolation is identical.
+    #
+    # count(case(...)) rather than sum(case(...)): count ignores NULLs and
+    # returns 0 for an empty set, where sum returns NULL.
+    total_runs, finished_runs, successful_runs = (
+        db.query(
+            func.count(CheckRun.id),
+            func.count(case((CheckRun.status != CheckRunStatus.running, 1))),
+            func.count(case((CheckRun.status == CheckRunStatus.success, 1))),
+        )
+        .join(Surface, Surface.id == CheckRun.surface_id)
+        .join(Competitor, Competitor.id == Surface.competitor_id)
+        .filter(Competitor.workspace_id == workspace_id)
+        .one()
+    )
+
     ranked = (
         select(
             CheckRun.id.label("id"),
@@ -58,10 +78,20 @@ def list_latest_check_runs(
         .subquery()
     )
 
-    return (
+    latest = (
         db.query(CheckRun)
         .join(ranked, ranked.c.id == CheckRun.id)
         .filter(ranked.c.row_number == 1)
         .order_by(CheckRun.surface_id)
         .all()
+    )
+
+    # Two statements, both covered by ix_check_runs_surface_id_started_at, and
+    # both independent of how many surfaces the workspace has — which is the
+    # property that matters here. This replaced one HTTP request per surface.
+    return LatestCheckRunsResponse(
+        latest=latest,
+        total_runs=total_runs,
+        finished_runs=finished_runs,
+        successful_runs=successful_runs,
     )
