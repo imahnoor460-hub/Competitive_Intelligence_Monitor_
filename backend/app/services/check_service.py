@@ -119,27 +119,52 @@ def _hash_text(text: str) -> str:
 
 
 def _perform_check(db: Session, surface: Surface) -> dict:
-    new_text = capture_clean_snapshot(surface.url)
+    # Every value the fetch/render phase needs is read into a plain local
+    # before the db.commit() below hands this session's pooled connection
+    # back. expire_on_commit is on (the default), so touching any ORM
+    # attribute after that commit would silently re-SELECT and check a
+    # connection straight back out — precisely what this is avoiding.
+    surface_id = surface.id
+    surface_url = surface.url
+    surface_competitor_id = surface.competitor_id
+    capture_visual = surface.capture_visual
 
-    surface.last_checked_at = datetime.utcnow()
+    # run_surface_check's db.refresh(check_run) left a read transaction open,
+    # so a connection is checked out right now. The fetch and the screenshot
+    # below are network- and browser-bound and can together run well past a
+    # minute; a connection held idle-in-transaction across them is what
+    # drains the pool once a handful of checks overlap, since the scheduler
+    # and the request threadpool can put far more checks in flight at once
+    # than QueuePool's 5 + 10 overflow can cover.
+    db.commit()
+
+    new_text = capture_clean_snapshot(surface_url)
 
     screenshot_path = None
-    if surface.capture_visual:
+    if capture_visual:
         try:
-            screenshot_path = capture_screenshot(surface.url, surface.id)
+            screenshot_path = capture_screenshot(surface_url, surface_id)
         except ScreenshotError as exc:
-            logger.warning("Screenshot capture failed for surface %s: %s", surface.id, exc)
+            logger.warning("Screenshot capture failed for surface %s: %s", surface_id, exc)
 
+    # First DB access since the release — this checks a connection back out.
     previous_snapshot = (
         db.query(Snapshot)
-        .filter(Snapshot.surface_id == surface.id)
+        .filter(Snapshot.surface_id == surface_id)
         .order_by(Snapshot.id.desc())
         .first()
     )
 
+    # Set after the I/O rather than before it: `surface` is expired by the
+    # release above, and this is the first point where the session holds a
+    # connection again anyway. Nothing between here and its original position
+    # read the value, and run_surface_check rolls the session back on failure
+    # either way.
+    surface.last_checked_at = datetime.utcnow()
+
     if previous_snapshot is None or previous_snapshot.text_content is None:
         new_snapshot = Snapshot(
-            surface_id=surface.id, text_content=new_text, screenshot_path=screenshot_path,
+            surface_id=surface_id, text_content=new_text, screenshot_path=screenshot_path,
             content_hash=_hash_text(new_text)
         )
         db.add(new_snapshot)
@@ -157,7 +182,7 @@ def _perform_check(db: Session, surface: Surface) -> dict:
         return {"status": "no_change"}
 
     new_snapshot = Snapshot(
-        surface_id=surface.id, text_content=new_text, screenshot_path=screenshot_path,
+        surface_id=surface_id, text_content=new_text, screenshot_path=screenshot_path,
         content_hash=_hash_text(new_text)
     )
     db.add(new_snapshot)
@@ -170,8 +195,8 @@ def _perform_check(db: Session, surface: Surface) -> dict:
     )
 
     change_log = ChangeLog(
-        competitor_id=surface.competitor_id,
-        surface_id=surface.id,
+        competitor_id=surface_competitor_id,
+        surface_id=surface_id,
         old_snapshot_id=previous_snapshot.id,
         new_snapshot_id=new_snapshot.id,
         diff=diff_text,

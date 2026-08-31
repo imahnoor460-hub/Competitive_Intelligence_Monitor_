@@ -17,7 +17,7 @@ __all__ = ["discover_surfaces", "normalize_url", "SurfaceDiscoveryError"]
 # domcontentloaded from this sandbox. A short timeout here doesn't fail
 # gracefully to "found fewer pages" — it fails the whole discovery pass
 # outright, which reads as "found nothing" to the caller.
-_GOTO_TIMEOUT_MS = 45_000
+_GOTO_TIMEOUT_MS = 60_000
 _SETTLE_MS = 8_000
 
 # Hard ceiling on how many pages a single discovery pass will turn into
@@ -139,7 +139,7 @@ def discover_surfaces(homepage_url: str) -> list[tuple[SurfaceType, str | None, 
             try:
                 page = browser.new_page()
                 try:
-                    resp = page.goto(homepage_url, wait_until="commit", timeout=60_000)
+                    resp = page.goto(homepage_url, wait_until="commit", timeout=_GOTO_TIMEOUT_MS)
                     logging.info("goto returned %s", resp.status if resp else None)
                 except PlaywrightTimeoutError:
                     logging.error("timeout; page.url=%s title=%s",

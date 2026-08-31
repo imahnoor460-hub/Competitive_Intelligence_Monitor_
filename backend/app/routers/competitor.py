@@ -67,21 +67,30 @@ def create_competitor(
     db.add(new_competitor)
     db.commit()
     db.refresh(new_competitor)
+    competitor_id = new_competitor.id
 
     surfaces_discovered = 0
     if competitor.website_url is not None:
+        # discover_surfaces launches a browser with a 60s navigation timeout,
+        # and the refresh above left a connection checked out on this
+        # request-scoped session — hand it back first. `competitor` is the
+        # request schema rather than an ORM instance, so reading website_url
+        # after the release costs nothing; new_competitor is deliberately not
+        # touched again until the loop below re-acquires.
+        db.commit()
+
         try:
             discovered = discover_surfaces(str(competitor.website_url))
         except SurfaceDiscoveryError as exc:
             logger.warning(
                 "Surface discovery failed for competitor %s (%s): %s",
-                new_competitor.id, competitor.website_url, exc,
+                competitor_id, competitor.website_url, exc,
             )
             discovered = []
 
         for surface_type, name, url in discovered:
             new_surface = Surface(
-                competitor_id=new_competitor.id,
+                competitor_id=competitor_id,
                 surface_type=surface_type,
                 name=name,
                 url=url,

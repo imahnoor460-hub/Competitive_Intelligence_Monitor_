@@ -48,34 +48,55 @@ def _latest_pages(db: Session, competitor_id: int) -> list[tuple[str, str]]:
     matters more than shaving that cost.
     """
 
-    surfaces = (
-        db.query(Surface)
-        .filter(Surface.competitor_id == competitor_id, Surface.is_active.is_(True))
-        .all()
-    )
+    # Materialized into plain tuples so the render loop below can run with
+    # this session's pooled connection handed back. Every capture_rendered_text
+    # call is a full browser launch with a 60s navigation timeout, and a
+    # competitor can have dozens of active surfaces (discovery caps at 40), so
+    # a connection held across the loop is the longest DB hold in the app.
+    # expire_on_commit is on, so nothing below may touch a Surface instance —
+    # hence reading the label and URL out here.
+    surfaces = [
+        (surface.id, f"{surface.surface_type.value} — {surface.url}", surface.url)
+        for surface in (
+            db.query(Surface)
+            .filter(Surface.competitor_id == competitor_id, Surface.is_active.is_(True))
+            .all()
+        )
+    ]
 
-    pages = []
-    for surface in surfaces:
-        label = f"{surface.surface_type.value} — {surface.url}"
+    db.commit()
 
+    # Keyed by position so the snapshot fallbacks below can be batched after
+    # the renders without reordering `pages` relative to the surface order the
+    # prompt has always seen.
+    pages_by_index: dict[int, tuple[str, str]] = {}
+    fallbacks: list[tuple[int, int, str]] = []
+
+    for index, (surface_id, label, url) in enumerate(surfaces):
         try:
-            rendered_text = capture_rendered_text(surface.url)
+            rendered_text = capture_rendered_text(url)
             if rendered_text:
-                pages.append((label, rendered_text))
+                pages_by_index[index] = (label, rendered_text)
                 continue
         except RenderedContentError as exc:
-            logger.warning("Rendered fetch failed for surface %s, falling back to last snapshot: %s", surface.id, exc)
+            logger.warning("Rendered fetch failed for surface %s, falling back to last snapshot: %s", surface_id, exc)
 
+        fallbacks.append((index, surface_id, label))
+
+    # First DB access since the release, and only for the surfaces that
+    # actually need it — one checkout for the fallbacks instead of one held
+    # across every render.
+    for index, surface_id, label in fallbacks:
         snapshot = (
             db.query(Snapshot)
-            .filter(Snapshot.surface_id == surface.id)
+            .filter(Snapshot.surface_id == surface_id)
             .order_by(Snapshot.id.desc())
             .first()
         )
         if snapshot is not None and snapshot.text_content:
-            pages.append((label, snapshot.text_content))
+            pages_by_index[index] = (label, snapshot.text_content)
 
-    return pages
+    return [pages_by_index[index] for index in sorted(pages_by_index)]
 
 
 def generate_site_summary(
@@ -94,6 +115,12 @@ def generate_site_summary(
         )
 
     check_budget(db, workspace_id)
+
+    # check_budget's queries leave a transaction open; the completion below is
+    # a blocking network call, so hand the connection back before it. The
+    # db.add() that follows emits no SQL (autoflush is off), so the connection
+    # stays returned until the upsert query further down re-acquires it.
+    db.commit()
 
     result = llm_client.complete(
         system=SITE_SUMMARY_SYSTEM_PROMPT,

@@ -12,7 +12,7 @@ from app.core.config import settings
 
 __all__ = ["capture_screenshot", "ScreenshotError"]
 
-_GOTO_TIMEOUT_MS = 15_000
+_GOTO_TIMEOUT_MS = 60_000
 
 # `wait_until="commit"` returns as soon as the response headers arrive, well
 # before anything has painted, so unlike the other two call sites (which
@@ -43,7 +43,7 @@ def capture_screenshot(url: str, surface_id: int) -> str:
             try:
                 page = browser.new_page()
                 try:
-                    resp = page.goto(url, wait_until="commit", timeout=60_000)
+                    resp = page.goto(url, wait_until="commit", timeout=_GOTO_TIMEOUT_MS)
                     logging.info("goto returned %s", resp.status if resp else None)
                 except PlaywrightTimeoutError:
                     logging.error("timeout; page.url=%s title=%s",

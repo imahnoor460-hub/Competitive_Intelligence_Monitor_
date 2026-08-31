@@ -60,8 +60,18 @@ def get_category_price_stats(
             "This competitor has no captured page yet — run a check first"
         )
 
+    # Read before releasing: expire_on_commit is on, so `surface` must not be
+    # touched after the commit below.
+    surface_url = surface.url
+
+    # find_category_listing_url launches a browser with a 60s navigation
+    # timeout. This runs on a request thread holding a get_db() session, so
+    # without this the session's pooled connection would sit idle-in-
+    # transaction for the whole render.
+    db.commit()
+
     try:
-        listing_url = find_category_listing_url(surface.url, category)
+        listing_url = find_category_listing_url(surface_url, category)
     except RenderedContentError:
         listing_url = None
 
@@ -77,6 +87,11 @@ def get_category_price_stats(
         )
 
     check_budget(db, workspace_id)
+
+    # check_budget checked a connection back out; the second render and the
+    # completion that follows it are both blocking network work, so release
+    # again before them.
+    db.commit()
 
     try:
         page_text = capture_rendered_text(listing_url)

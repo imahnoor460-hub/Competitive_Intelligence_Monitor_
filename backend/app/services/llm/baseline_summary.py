@@ -33,6 +33,15 @@ def summarize_baseline_snapshot(
 
     check_budget(db, workspace_id)
 
+    # Same rule as site_summary_service.generate_site_summary: check_budget's
+    # queries leave a transaction open, and the completion below is a blocking
+    # network call, so hand the pooled connection back before it. This is the
+    # baseline path, which is exactly what every never-checked surface takes
+    # after a restart, so it is the one LLM hold that overlaps at scale. The
+    # db.add() below emits no SQL (autoflush is off), so the connection stays
+    # returned until the caller's commit.
+    db.commit()
+
     result = llm_client.complete(
         system=BASELINE_SUMMARY_SYSTEM_PROMPT,
         user=baseline_summary_user_prompt(surface_label, page_text),

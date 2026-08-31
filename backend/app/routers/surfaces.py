@@ -124,17 +124,25 @@ def discover_more_surfaces(
         )
 
     seed = next((s for s in existing_surfaces if s.surface_type == SurfaceType.other), existing_surfaces[0])
+    seed_url = seed.url
 
-    try:
-        discovered = discover_surfaces(seed.url)
-    except SurfaceDiscoveryError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
+    # Built before the release below rather than after it: expire_on_commit is
+    # on, so re-reading .url off these instances post-commit would re-SELECT
+    # every one of them. Nothing here depends on the discovery result.
     existing_urls = {
         normalized
         for s in existing_surfaces
         if (normalized := normalize_url(s.url)) is not None
     }
+
+    # discover_surfaces launches a browser with a 60s navigation timeout —
+    # hand this request session's pooled connection back before it.
+    db.commit()
+
+    try:
+        discovered = discover_surfaces(seed_url)
+    except SurfaceDiscoveryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
     created: list[Surface] = []
     for surface_type, name, url in discovered:
