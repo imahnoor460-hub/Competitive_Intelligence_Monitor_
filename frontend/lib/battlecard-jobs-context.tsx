@@ -1,10 +1,18 @@
 "use client";
 
-import { createContext, useContext, useCallback, useRef, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useState,
+  ReactNode,
+} from "react";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { useToast } from "@/components/ui/Toast";
 import { BattlecardUpdateJob } from "@/lib/types";
+import { JobPollerRegistry } from "@/lib/job-poller";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -38,56 +46,60 @@ export function useBattlecardJobs(): BattlecardJobsContextValue {
 export function BattlecardJobsProvider({ children }: { children: ReactNode }) {
   const { workspaceId } = useWorkspaceContext();
   const { push } = useToast();
-  // Tracks setInterval handles per job id so polling survives client-side
-  // navigation (this provider is mounted above the page shell) and gets
-  // cleared exactly once when a job resolves.
-  const pollersRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+
+  // One registry per provider instance, owning every interval. See
+  // lib/job-poller.ts: it keeps polling to one request per job at a time,
+  // stops on a terminal status, and settles each job exactly once.
+  const [registry] = useState(() => new JobPollerRegistry(POLL_INTERVAL_MS));
+
   const [activeByJob, setActiveByJob] = useState<Record<number, number>>({});
   const [completedCount, setCompletedCount] = useState(0);
 
+  // Every interval dies with the provider. Without this, a remount left the
+  // previous instance's intervals running with nothing holding a handle to
+  // them.
+  useEffect(() => {
+    return () => {
+      registry.stopAll();
+    };
+  }, [registry]);
+
   const pollJob = useCallback(
     (wsId: number, competitorId: number, jobId: number) => {
-      setActiveByJob((prev) => ({ ...prev, [jobId]: competitorId }));
-
-      const resolve = () => {
-        clearInterval(pollersRef.current[jobId]);
-        delete pollersRef.current[jobId];
-        setActiveByJob((prev) => {
-          const next = { ...prev };
-          delete next[jobId];
-          return next;
-        });
-        setCompletedCount((n) => n + 1);
-      };
-
-      const interval = setInterval(async () => {
-        try {
-          const job: BattlecardUpdateJob = await apiFetch(
+      const started = registry.start<BattlecardUpdateJob>(
+        jobId,
+        () =>
+          apiFetch(
             `/workspaces/${wsId}/competitors/${competitorId}/battlecard/updates/jobs/${jobId}`
-          );
+          ),
+        (job) => {
+          setActiveByJob((prev) => {
+            const next = { ...prev };
+            delete next[jobId];
+            return next;
+          });
+          setCompletedCount((n) => n + 1);
+
           if (job.status === "success") {
-            resolve();
             push({
               tone: "success",
               message: "Battlecard update ready — sent to approval queue",
               href: "/approvals",
             });
-          } else if (job.status === "failed") {
-            resolve();
+          } else {
             push({
               tone: "error",
               message: job.error || "Battlecard update generation failed",
             });
           }
-        } catch {
-          // A transient poll failure (network blip) isn't worth surfacing —
-          // the next tick will just try again.
         }
-      }, POLL_INTERVAL_MS);
+      );
 
-      pollersRef.current[jobId] = interval;
+      // Only mark the competitor busy if this call actually started a poller,
+      // so a repeat call can't strand a card on "Generating...".
+      if (started) setActiveByJob((prev) => ({ ...prev, [jobId]: competitorId }));
     },
-    [push]
+    [push, registry]
   );
 
   const startBattlecardUpdateJob = useCallback(
@@ -111,6 +123,8 @@ export function BattlecardJobsProvider({ children }: { children: ReactNode }) {
     [workspaceId, pollJob, push]
   );
 
+  // Only read during render (`.includes` on the battlecards page), never as a
+  // hook dependency, so a fresh array identity each render is harmless.
   const activeCompetitorIds = Array.from(new Set(Object.values(activeByJob)));
 
   return (
