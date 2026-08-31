@@ -5,6 +5,7 @@ import app.services.battlecard_service as battlecard_service
 import app.services.check_service as check_service
 from app.services.llm.client import LLMCallResult
 from app.services.briefing_service import BriefingDraft
+from app.models.battlecard_update_job import BattlecardUpdateJob
 from app.services.battlecard_service import BattlecardDraft
 from app.services.llm.scoring import MaterialityResult
 
@@ -126,33 +127,31 @@ def test_briefing_generation_blocked_with_402_when_over_budget(client, monkeypat
     assert res.status_code == 402
 
 
-def test_battlecard_propose_blocked_with_402_when_over_budget(client, monkeypatch):
+def test_battlecard_propose_blocked_with_402_when_over_budget(client, monkeypatch, db_session):
     headers = _register_login(client, "owner@example.com")
     workspace, competitor, change_log_id = _seed_workspace_with_change_log(client, headers, monkeypatch)
 
     client.put(
         f"/workspaces/{workspace['id']}/budget/", json={"monthly_cap_usd": 0.0}, headers=headers
     )
-    monkeypatch.setattr(battlecards_router, "get_llm_client", lambda: _FakeBattlecardLLMClient())
-    monkeypatch.setattr(battlecard_service, "get_llm_client", lambda: _FakeBattlecardLLMClient())
+    fake = _FakeBattlecardLLMClient()
+    monkeypatch.setattr(battlecards_router, "get_llm_client", lambda: fake)
+    monkeypatch.setattr(battlecard_service, "get_llm_client", lambda: fake)
 
-    # Budget is checked inside the background job (draft_update_from_change_
-    # logs), not at the router level — propose_update itself just queues the
-    # job and returns 202; the 402 only shows up once the job resolves.
+    # Answered synchronously, like briefings/generate-now: the caller is told
+    # 402 up front instead of getting a 202 and having to poll the job to
+    # discover it was never going to run.
     res = client.post(
         f"/workspaces/{workspace['id']}/competitors/{competitor['id']}/battlecard/updates",
         json={"change_log_ids": [change_log_id]},
         headers=headers,
     )
-    assert res.status_code == 202
-    job = res.json()
+    assert res.status_code == 402
 
-    job_res = client.get(
-        f"/workspaces/{workspace['id']}/competitors/{competitor['id']}/battlecard/updates/jobs/{job['id']}",
-        headers=headers,
-    ).json()
-    assert job_res["status"] == "failed"
-    assert "monthly cap" in job_res["error"].lower()
+    # And no job row was enqueued for work the budget had already refused —
+    # the point of moving the guard ahead of the enqueue. Checked against the
+    # table because the jobs are only readable by id through the API.
+    assert db_session.query(BattlecardUpdateJob).count() == 0
 
 
 def test_insights_trends_degrades_gracefully_when_over_budget(client, monkeypatch):

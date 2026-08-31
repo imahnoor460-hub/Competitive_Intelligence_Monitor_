@@ -12,7 +12,13 @@ from app.schemas.battlecard import (
     ProposeBattlecardUpdateRequest, BattlecardResponse, BattlecardUpdateResponse,
     BattlecardUpdateJobResponse,
 )
-from app.dependencies import get_current_user, get_current_workspace, require_role, rate_limit
+from app.dependencies import (
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    enforce_rate_limit,
+)
+from app.services.budget_service import check_budget, BudgetExceededError
 from app.services.llm.factory import get_llm_client
 from app.services.battlecard_service import run_battlecard_update_job
 
@@ -69,8 +75,7 @@ def propose_update(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
-    _rate_limit: None = Depends(rate_limit("battlecard-propose"))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
 ):
 
     _get_owned_competitor(db, workspace_id, competitor_id)
@@ -78,6 +83,24 @@ def propose_update(
     llm_client = get_llm_client()
     if llm_client is None:
         raise HTTPException(status_code=400, detail="No LLM is configured for this deployment")
+
+    # Same shape as briefings.generate_now: both guards run here rather than
+    # inside the queued job, because this request has already returned 202 by
+    # the time the job runs, so an over-budget caller would be told the work
+    # was accepted and only learn otherwise by polling the job.
+    # draft_update_from_change_logs() still calls check_budget() of its own —
+    # spend can cross the cap between enqueue and execution — but that one is
+    # a backstop, not the caller-facing answer.
+    #
+    # Budget before rate limit, so being over budget doesn't also burn a
+    # rate-limit token for work that was never going to run. The competitor
+    # lookup stays first: a bogus competitor_id is a 404, not a 402/429.
+    try:
+        check_budget(db, workspace_id)
+    except BudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc))
+
+    enforce_rate_limit("battlecard-propose", workspace_id)
 
     job = BattlecardUpdateJob(
         workspace_id=workspace_id,
