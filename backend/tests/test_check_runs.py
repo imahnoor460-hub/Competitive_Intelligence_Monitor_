@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 
-import pytest
 
 import app.services.check_service as check_service
 from app.models.check_run import CheckRun, CheckRunStatus
@@ -89,12 +88,13 @@ def test_check_marks_run_failed_on_unexpected_exception(client, monkeypatch):
     monkeypatch.setattr(check_service, "compute_diff", _raise)
     monkeypatch.setattr(check_service, "capture_clean_snapshot", lambda url: "Plan A $15")
 
-    # TestClient re-raises unhandled exceptions rather than returning a 500
-    # response (this is intentional Starlette test behavior) — the real
-    # deployed app still returns 500 to callers via its default error
-    # middleware; what matters here is the CheckRun bookkeeping below.
-    with pytest.raises(RuntimeError, match="boom"):
-        client.post(check_url, headers=headers)
+    # The app converts an unhandled exception into a consistent JSON 500
+    # rather than letting it escape to the caller (see app/core/errors.py), so
+    # this asserts what the deployed app actually returns. What matters here is
+    # still the CheckRun bookkeeping below.
+    failed_res = client.post(check_url, headers=headers)
+    assert failed_res.status_code == 500
+    assert failed_res.json() == {"detail": "Internal server error"}
 
     runs = client.get(
         f"/workspaces/{workspace_id}/competitors/{competitor_id}/surfaces/{surface_id}/check-runs",

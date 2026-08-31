@@ -2,8 +2,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 from app.routers import competitor
 from app.core.config import settings
+from app.core.errors import (
+    UnhandledErrorMiddleware,
+    pool_timeout_handler,
+    unhandled_exception_handler,
+)
 from app.routers import auth
 from app.routers import change_log
 from app.routers import workspace
@@ -36,6 +42,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Pool exhaustion answers 503 rather than 500 (see pool_timeout_handler); the
+# Exception handler is a backstop for anything that escapes above the
+# middleware below.
+app.add_exception_handler(SATimeoutError, pool_timeout_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
+
+# Order matters. add_middleware inserts at index 0, so the *last* one added is
+# outermost: CORSMiddleware must wrap UnhandledErrorMiddleware, or the JSON
+# 500 the latter produces goes out without Access-Control-Allow-Origin and the
+# browser reports it as a CORS policy error instead of a 500.
+app.add_middleware(UnhandledErrorMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
