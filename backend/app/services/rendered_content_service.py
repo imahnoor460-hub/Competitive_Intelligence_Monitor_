@@ -13,7 +13,7 @@ from app.services.noise_filter import strip_noise
 
 __all__ = ["capture_rendered_text", "find_category_listing_url", "RenderedContentError"]
 
-_GOTO_TIMEOUT_MS = 15_000
+_GOTO_TIMEOUT_MS = 60_000
 _SETTLE_MS = 5_000
 
 # Some storefronts hydrate their nav/category menu — and separately, their
@@ -96,7 +96,7 @@ def capture_rendered_text(url: str) -> str:
             try:
                 page = browser.new_page()
                 try:
-                    resp = page.goto(url, wait_until="commit", timeout=60_000)
+                    resp = page.goto(url, wait_until="commit", timeout=_GOTO_TIMEOUT_MS)
                     logging.info("goto returned %s", resp.status if resp else None)
                 except PlaywrightTimeoutError:
                     logging.error("timeout; page.url=%s title=%s",
@@ -136,7 +136,7 @@ def find_category_listing_url(url: str, category: str) -> str | None:
                 page = browser.new_page()
 
                 try:
-                    resp = page.goto(url, wait_until="commit", timeout=60_000)
+                    resp = page.goto(url, wait_until="commit", timeout=_GOTO_TIMEOUT_MS)
                     logging.info("goto returned %s", resp.status if resp else None)
                 except PlaywrightTimeoutError:
                     logging.error("timeout; page.url=%s title=%s",
