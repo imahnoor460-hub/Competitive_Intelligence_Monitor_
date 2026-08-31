@@ -30,6 +30,7 @@ from app.models.workspace_integration import WorkspaceIntegration  # noqa: F401
 from app.models.company_profile import CompanyProfile  # noqa: F401
 from app.models.traffic_snapshot import TrafficSnapshot  # noqa: F401
 from app.models.competitor_site_summary import CompetitorSiteSummary  # noqa: F401
+from app.models.competitor_discovery_job import CompetitorDiscoveryJob  # noqa: F401
 from app.services.rate_limiter import reset_rate_limits
 from app.services.rendered_content_service import RenderedContentError
 
@@ -55,9 +56,13 @@ def db_session(monkeypatch):
     import app.database as app_database
     import app.services.briefing_service as briefing_service
     import app.services.battlecard_service as battlecard_service
+    import app.services.competitor_discovery_service as competitor_discovery_service
     monkeypatch.setattr(app_database, "SessionLocal", TestingSessionLocal)
     monkeypatch.setattr(briefing_service, "SessionLocal", TestingSessionLocal)
     monkeypatch.setattr(battlecard_service, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(
+        competitor_discovery_service, "SessionLocal", TestingSessionLocal
+    )
 
     session = TestingSessionLocal()
     try:

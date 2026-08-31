@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, FormEvent } from "react";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useWorkspaceContext } from "@/lib/workspace-context";
+import { useCompetitorDiscoveryJobs } from "@/lib/competitor-discovery-jobs-context";
 import {
   ApprovalItem,
   Briefing,
@@ -94,6 +95,8 @@ export default function DashboardPage() {
   const { workspaceId, ready: contextReady, canEdit } = useWorkspaceContext();
   const [nowMs] = useState(() => Date.now());
 
+  const { trackDiscoveryJob, discoveringCount, completedCount } =
+    useCompetitorDiscoveryJobs();
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [changeLogs, setChangeLogs] = useState<ChangeLog[]>([]);
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
@@ -181,6 +184,13 @@ export default function DashboardPage() {
     })();
   }, [workspaceId, load]);
 
+  // Surfaces only exist once the background discovery job has run, so reload
+  // when one resolves — completedCount bumps on every resolve.
+  useEffect(() => {
+    if (!workspaceId || completedCount === 0) return;
+    void load(workspaceId);
+  }, [completedCount, workspaceId, load]);
+
   async function handleAddCompetitor(e: FormEvent) {
     e.preventDefault();
     if (!workspaceId || !newCompetitorName.trim()) return;
@@ -189,22 +199,27 @@ export default function DashboardPage() {
     setError(null);
     setCompetitorAddedNotice(null);
     try {
-      const created = await apiFetch(`/workspaces/${workspaceId}/competitors/`, {
-        method: "POST",
-        body: JSON.stringify({
-          name: newCompetitorName.trim(),
-          website_url: newCompetitorUrl.trim() || undefined,
-        }),
-      });
-      setCompetitorAddedNotice(
-        created.surfaces_discovered > 0
-          ? `Added ${created.name} — found ${created.surfaces_discovered} page${
-              created.surfaces_discovered === 1 ? "" : "s"
-            } to watch automatically.`
-          : newCompetitorUrl.trim()
-          ? `Added ${created.name} — couldn't auto-detect any pages, add them manually from its page.`
-          : null
+      const created: Competitor = await apiFetch(
+        `/workspaces/${workspaceId}/competitors/`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: newCompetitorName.trim(),
+            website_url: newCompetitorUrl.trim() || undefined,
+          }),
+        }
       );
+      // The add returns as soon as the competitor row exists. Page discovery
+      // drives a real browser and now runs as a background job, so report the
+      // count from the job when it resolves rather than blocking on it here.
+      if (created.discovery_job_id) {
+        trackDiscoveryJob(created.id, created.discovery_job_id);
+        setCompetitorAddedNotice(
+          `Added ${created.name} — discovering its pages in the background...`
+        );
+      } else {
+        setCompetitorAddedNotice(null);
+      }
       setNewCompetitorName("");
       setNewCompetitorUrl("");
       await load(workspaceId);
@@ -454,6 +469,13 @@ export default function DashboardPage() {
               {creatingCompetitor ? "Adding..." : "Add competitor"}
             </button>
           </form>
+        )}
+        {discoveringCount > 0 && (
+          <p className="text-xs text-[var(--text-muted)]">
+            Discovering pages for {discoveringCount} competitor
+            {discoveringCount === 1 ? "" : "s"}... you can keep working, this
+            finishes on its own.
+          </p>
         )}
         {competitorAddedNotice && (
           <p className="text-xs text-[var(--accent)]">{competitorAddedNotice}</p>

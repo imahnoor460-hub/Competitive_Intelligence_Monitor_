@@ -56,6 +56,21 @@ export interface Competitor {
   is_own_site?: boolean;
   created_at: string | null;
   surfaces_discovered?: number;
+  // Only set by POST /competitors, and only when a website_url was given.
+  // Page discovery runs as a background job, so the create response hands
+  // back a job to poll rather than a finished count.
+  discovery_job_id?: number | null;
+}
+
+export type CompetitorDiscoveryJobStatus = "queued" | "running" | "success" | "failed";
+
+export interface CompetitorDiscoveryJob {
+  id: number;
+  status: CompetitorDiscoveryJobStatus;
+  surfaces_discovered: number;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
 }
 
 export type ChangeItemType = "price_drop" | "price_increase" | "new" | "removed" | "policy" | "other";

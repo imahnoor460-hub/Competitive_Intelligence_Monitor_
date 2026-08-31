@@ -1,29 +1,28 @@
-import logging
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.competitor import Competitor
+from app.models.competitor_discovery_job import (
+    CompetitorDiscoveryJob,
+    CompetitorDiscoveryJobStatus,
+)
 from app.models.company_profile import CompanyProfile
 from app.models.battlecard import Battlecard
-from app.models.surface import Surface
 from app.models.traffic_snapshot import TrafficSnapshot
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.competitor import (
     CompetitorCreate,
-    CompetitorResponse
+    CompetitorResponse,
+    CompetitorDiscoveryJobResponse,
 )
 from app.schemas.comparison import ComparisonResponse, BenchmarkComparisonResponse
 from app.dependencies import get_current_user, get_current_workspace, require_role
-from app.scheduler import schedule_surface
 from app.services.comparison_service import summarize_competitor
+from app.services.competitor_discovery_service import run_competitor_discovery_job
 from app.services.competitor_service import delete_competitor as delete_competitor_cascade
 from app.services.own_site_service import get_own_site
-from app.services.surface_discovery_service import discover_surfaces, SurfaceDiscoveryError
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/competitors",
@@ -38,6 +37,7 @@ router = APIRouter(
 def create_competitor(
     workspace_id: int,
     competitor: CompetitorCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
@@ -69,43 +69,64 @@ def create_competitor(
     db.refresh(new_competitor)
     competitor_id = new_competitor.id
 
-    surfaces_discovered = 0
+    # Page discovery drives a real browser (Chromium launch, a 60s navigation
+    # timeout and an unconditional 8s settle) and then inserts up to 40
+    # surfaces, so it runs as a queued job rather than inline: this request
+    # used to stay open for the better part of a minute, which is long enough
+    # for an edge proxy to drop it even though every surface had already been
+    # committed. Same job + BackgroundTasks + poll shape as briefings and
+    # battlecard updates.
+    discovery_job_id = None
     if competitor.website_url is not None:
-        # discover_surfaces launches a browser with a 60s navigation timeout,
-        # and the refresh above left a connection checked out on this
-        # request-scoped session — hand it back first. `competitor` is the
-        # request schema rather than an ORM instance, so reading website_url
-        # after the release costs nothing; new_competitor is deliberately not
-        # touched again until the loop below re-acquires.
+        job = CompetitorDiscoveryJob(
+            workspace_id=workspace_id,
+            competitor_id=competitor_id,
+            website_url=str(competitor.website_url),
+            status=CompetitorDiscoveryJobStatus.queued,
+            created_by_user_id=current_user.id,
+        )
+        db.add(job)
         db.commit()
+        db.refresh(job)
 
-        try:
-            discovered = discover_surfaces(str(competitor.website_url))
-        except SurfaceDiscoveryError as exc:
-            logger.warning(
-                "Surface discovery failed for competitor %s (%s): %s",
-                competitor_id, competitor.website_url, exc,
-            )
-            discovered = []
+        background_tasks.add_task(run_competitor_discovery_job, job.id)
+        discovery_job_id = job.id
 
-        for surface_type, name, url in discovered:
-            new_surface = Surface(
-                competitor_id=competitor_id,
-                surface_type=surface_type,
-                name=name,
-                url=url,
-            )
-            db.add(new_surface)
-            db.commit()
-            db.refresh(new_surface)
-            schedule_surface(new_surface)
-            surfaces_discovered += 1
-
-    # Not a DB column — set only so the response can report how many pages
-    # were auto-discovered without a schema migration.
-    new_competitor.surfaces_discovered = surfaces_discovered
+    # Neither is a DB column — set only so the create response can hand the
+    # frontend the job to poll. surfaces_discovered is always 0 here now; the
+    # real count lands on the job when discovery finishes.
+    new_competitor.surfaces_discovered = 0
+    new_competitor.discovery_job_id = discovery_job_id
 
     return new_competitor
+
+
+@router.get(
+    "/{competitor_id}/discovery-jobs/{job_id}",
+    response_model=CompetitorDiscoveryJobResponse
+)
+def get_competitor_discovery_job(
+    workspace_id: int,
+    competitor_id: int,
+    job_id: int,
+    db: Session = Depends(get_db),
+    membership: WorkspaceMember = Depends(get_current_workspace)
+):
+
+    job = (
+        db.query(CompetitorDiscoveryJob)
+        .filter(
+            CompetitorDiscoveryJob.id == job_id,
+            CompetitorDiscoveryJob.workspace_id == workspace_id,
+            CompetitorDiscoveryJob.competitor_id == competitor_id,
+        )
+        .first()
+    )
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Discovery job not found")
+
+    return job
 
 
 @router.get(
