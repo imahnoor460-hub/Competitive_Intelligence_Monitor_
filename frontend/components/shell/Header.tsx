@@ -4,9 +4,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { apiFetch } from "@/lib/api";
-import { ChangeLog, Competitor, Surface } from "@/lib/types";
+import { useCheckJobs } from "@/lib/check-jobs-context";
+import { ChangeLog, Competitor } from "@/lib/types";
 
 const MAX_RESULTS_PER_GROUP = 5;
+
+/** The API serializes naive UTC datetimes with no timezone designator, which
+ * `new Date()` reads as *local* time — an offset-hours-wrong "last sweep"
+ * label for everyone outside UTC. Append the designator when it is missing. */
+function parseUtc(value: string): Date {
+  return new Date(/(Z|[+-]\d\d:?\d\d)$/.test(value) ? value : `${value}Z`);
+}
 
 function snippet(text: string | null, query: string): string {
   if (!text) return "";
@@ -19,8 +27,19 @@ function snippet(text: string | null, query: string): string {
 export default function Header() {
   const router = useRouter();
   const { workspaceId, workspace, refreshPendingApprovals } = useWorkspaceContext();
-  const [running, setRunning] = useState(false);
-  const [lastSweep, setLastSweep] = useState<string | null>(null);
+  const { startCheckAll, sweep, completedCount } = useCheckJobs();
+  // Derived from the sweep row rather than stamped into state when one
+  // settles: the server already records when the sweep finished, and reading
+  // it back means the label is right after a reload too.
+  const lastSweep = sweep?.finished_at
+    ? parseUtc(sweep.finished_at).toLocaleTimeString()
+    : null;
+
+  // A sweep is the server's record now, so "still going" is read off the row
+  // rather than tracked in this component — which is what lets the label
+  // survive a reload and keep counting where it left off.
+  const running =
+    sweep !== null && (sweep.status === "queued" || sweep.status === "running");
 
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [changeLogs, setChangeLogs] = useState<ChangeLog[]>([]);
@@ -104,32 +123,21 @@ export default function Header() {
 
   const hasResults = results.competitors.length > 0 || results.changes.length > 0;
 
+  // One POST, and the server fans the work out. This replaced a sequential
+  // loop that ran here in the browser — fetch competitors, then surfaces, then
+  // a blocking check per surface, one after another — which meant nothing on
+  // the server knew a sweep was happening and closing the tab abandoned it
+  // halfway with no record of what had been missed.
   async function handleRunCheckNow() {
-    if (!workspaceId) return;
-    setRunning(true);
-    try {
-      const competitors: Competitor[] = await apiFetch(`/workspaces/${workspaceId}/competitors/`);
-      for (const competitor of competitors) {
-        const surfaces: Surface[] = await apiFetch(
-          `/workspaces/${workspaceId}/competitors/${competitor.id}/surfaces/`
-        );
-        for (const surface of surfaces) {
-          try {
-            await apiFetch(
-              `/workspaces/${workspaceId}/competitors/${competitor.id}/surfaces/${surface.id}/check`,
-              { method: "POST" }
-            );
-          } catch {
-            // One surface failing (e.g. an unreachable URL) shouldn't stop the sweep.
-          }
-        }
-      }
-      setLastSweep(new Date().toLocaleTimeString());
-      await refreshPendingApprovals();
-    } finally {
-      setRunning(false);
-    }
+    await startCheckAll();
   }
+
+  // A finished check is the moment approvals may have appeared: every check
+  // that finds something material queues one.
+  useEffect(() => {
+    if (completedCount === 0) return;
+    void refreshPendingApprovals();
+  }, [completedCount, refreshPendingApprovals]);
 
   return (
     <header className="sticky top-0 z-10 flex h-[62px] items-center gap-[18px] border-b border-[var(--border-subtle)] bg-[var(--bg-page)]/90 px-[34px] backdrop-blur">
@@ -218,7 +226,9 @@ export default function Header() {
         disabled={running || !workspaceId}
         className="h-[34px] rounded-[9px] bg-[var(--accent)] px-[15px] text-[12.5px] font-semibold text-[var(--accent-on)] disabled:opacity-50"
       >
-        {running ? "Checking all surfaces..." : "Run check now"}
+        {running
+          ? `Checking ${sweep.finished}/${sweep.total}...`
+          : "Run check now"}
       </button>
     </header>
   );

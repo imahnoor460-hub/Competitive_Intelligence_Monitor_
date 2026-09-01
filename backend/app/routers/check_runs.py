@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
@@ -7,13 +7,19 @@ from app.models.check_run import CheckRun, CheckRunStatus
 from app.models.competitor import Competitor
 from app.models.surface import Surface
 from app.models.workspace_member import WorkspaceMember
-from app.schemas.check_run import LatestCheckRunsResponse
+from app.schemas.check_run import CheckRunResponse, LatestCheckRunsResponse
 from app.dependencies import get_current_workspace
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/check-runs",
     tags=["Check Runs"]
 )
+
+# A queued run has no outcome yet, exactly like a running one. Both are
+# excluded from `finished_runs` so the dashboard's crawl success rate keeps
+# meaning successful/finished rather than silently counting not-yet-started
+# work as a completed check.
+_UNFINISHED_STATUSES = [CheckRunStatus.running, CheckRunStatus.queued]
 
 
 @router.get(
@@ -51,7 +57,9 @@ def list_latest_check_runs(
     total_runs, finished_runs, successful_runs = (
         db.query(
             func.count(CheckRun.id),
-            func.count(case((CheckRun.status != CheckRunStatus.running, 1))),
+            func.count(
+                case((CheckRun.status.notin_(_UNFINISHED_STATUSES), 1))
+            ),
             func.count(case((CheckRun.status == CheckRunStatus.success, 1))),
         )
         .join(Surface, Surface.id == CheckRun.surface_id)
@@ -95,3 +103,37 @@ def list_latest_check_runs(
         finished_runs=finished_runs,
         successful_runs=successful_runs,
     )
+
+
+@router.get(
+    "/{check_run_id}",
+    response_model=CheckRunResponse
+)
+def get_check_run(
+    workspace_id: int,
+    check_run_id: int,
+    db: Session = Depends(get_db),
+    membership: WorkspaceMember = Depends(get_current_workspace)
+):
+    """Poll one check run.
+
+    Scoped through Surface -> Competitor rather than a workspace column,
+    because check_runs has none — the join is what enforces isolation, the
+    same way list_latest_check_runs does it.
+    """
+
+    check_run = (
+        db.query(CheckRun)
+        .join(Surface, Surface.id == CheckRun.surface_id)
+        .join(Competitor, Competitor.id == Surface.competitor_id)
+        .filter(
+            CheckRun.id == check_run_id,
+            Competitor.workspace_id == workspace_id,
+        )
+        .first()
+    )
+
+    if check_run is None:
+        raise HTTPException(status_code=404, detail="Check run not found")
+
+    return check_run

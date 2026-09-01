@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useWorkspaceContext } from "@/lib/workspace-context";
+import { useCheckJobs } from "@/lib/check-jobs-context";
 import {
   CategoryPriceStats,
   ChangeLog,
@@ -18,12 +19,6 @@ import { surfaceDisplayName } from "@/lib/surface-name";
 import { SURFACE_TYPE_STYLES, HeadingDot, ChangeCard } from "@/components/changelog/SurfaceChangeCards";
 import DonutChart from "@/components/charts/DonutChart";
 import DualTrendChart from "@/components/charts/DualTrendChart";
-
-type CheckStatus =
-  | { state: "idle" }
-  | { state: "checking" }
-  | { state: "done"; message: string }
-  | { state: "error"; message: string };
 
 const SURFACE_TYPES: SurfaceType[] = ["pricing", "product", "changelog", "blog", "jobs", "other"];
 
@@ -80,6 +75,9 @@ export default function CompetitorDetailPage() {
   const router = useRouter();
   const competitorId = Number(params.id);
   const { workspaceId, workspace, ready: contextReady, canEdit } = useWorkspaceContext();
+  // Check state lives in the provider, not here: with a queue configured a
+  // check outlives this page, and a reload has to be able to pick it back up.
+  const { startSurfaceCheck, surfaceCheckState, completedCount } = useCheckJobs();
 
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -98,7 +96,6 @@ export default function CompetitorDetailPage() {
   const [priceError, setPriceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [checkStatus, setCheckStatus] = useState<Record<number, CheckStatus>>({});
   const [surfaceForm, setSurfaceForm] = useState({
     surface_type: "pricing" as SurfaceType,
     name: "",
@@ -146,6 +143,16 @@ export default function CompetitorDetailPage() {
       await load(workspaceId);
     })();
   }, [workspaceId, load]);
+
+  // A queued check finishes in a worker, long after the click. Refetch when
+  // one settles so the change it found actually appears, rather than leaving
+  // the page stale until the user reloads it themselves.
+  useEffect(() => {
+    if (completedCount === 0 || !workspaceId) return;
+    void (async () => {
+      await load(workspaceId);
+    })();
+  }, [completedCount, workspaceId, load]);
 
   async function handleCompareToChange(value: string) {
     setCompareTo(value);
@@ -265,31 +272,7 @@ export default function CompetitorDetailPage() {
   }
 
   async function handleCheckSurface(surfaceId: number) {
-    if (!workspaceId) return;
-
-    setCheckStatus((prev) => ({ ...prev, [surfaceId]: { state: "checking" } }));
-    try {
-      const result = await apiFetch(
-        `/workspaces/${workspaceId}/competitors/${competitorId}/surfaces/${surfaceId}/check`,
-        { method: "POST" }
-      );
-      const messages: Record<string, string> = {
-        baseline_captured: "Baseline captured",
-        no_change: "No change detected",
-        change_detected: "Change detected",
-        already_running: "A check is already running",
-      };
-      setCheckStatus((prev) => ({
-        ...prev,
-        [surfaceId]: { state: "done", message: messages[result.status] ?? result.status },
-      }));
-      await load(workspaceId);
-    } catch (err) {
-      setCheckStatus((prev) => ({
-        ...prev,
-        [surfaceId]: { state: "error", message: err instanceof ApiError ? err.message : "Check failed" },
-      }));
-    }
+    await startSurfaceCheck(competitorId, surfaceId);
   }
 
   if (!contextReady || loading) return null;
@@ -700,7 +683,7 @@ export default function CompetitorDetailPage() {
         ) : (
           <div className="overflow-hidden rounded-lg border border-[var(--border-subtle)]">
             {surfaces.map((s, i) => {
-              const status = checkStatus[s.id] ?? { state: "idle" };
+              const status = surfaceCheckState(s.id);
               const typeStyle = SURFACE_TYPE_STYLES[s.surface_type];
               const rowColor = ROW_COLORS[i % ROW_COLORS.length];
               return (

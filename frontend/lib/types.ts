@@ -295,3 +295,79 @@ export interface CategoryPriceStats {
   avg_price: number | null;
   currency: string | null;
 }
+
+export type CheckRunStatus = "queued" | "running" | "success" | "failed";
+
+export interface CheckRun {
+  id: number;
+  surface_id: number;
+  status: CheckRunStatus;
+  // Set when this run belongs to a "Run check now" sweep rather than a
+  // single-surface check.
+  sweep_id: number | null;
+  // What the check concluded once it succeeded: baseline_captured | no_change
+  // | change_detected. Null while queued or running, and on a failure.
+  // `status` alone only says the run finished, which is all a worker-executed
+  // check could otherwise report.
+  outcome: string | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+/**
+ * POST .../surfaces/{id}/check returns one shape whether the backend ran the
+ * check inline or queued it for a worker (see routers/surfaces.py).
+ *
+ * `status` is `queued` when a worker will do the work — the descriptive
+ * outcome is not known yet and arrives by polling the run. Otherwise it is
+ * the finished outcome (`baseline_captured` | `no_change` | `change_detected`)
+ * or `already_running`.
+ */
+export interface SurfaceCheckResult {
+  status: string;
+  check_run_id: number;
+}
+
+export type CheckSweepStatus = "queued" | "running" | "success" | "failed";
+
+/**
+ * One "check every surface in this workspace" request.
+ *
+ * A sweep is `success` even when some surfaces failed — `failed_count` is
+ * what carries that, so "28 of 30 checked" is reportable without treating a
+ * partial failure as a failed sweep. Only an all-failed sweep is `failed`.
+ */
+export interface CheckSweep {
+  id: number;
+  workspace_id: number;
+  status: CheckSweepStatus;
+  total: number;
+  finished: number;
+  failed_count: number;
+  created_at: string | null;
+  finished_at: string | null;
+}
+
+/** A job whose poll URL is nested under its competitor, so the id alone is
+ * not enough to rebuild it. */
+export interface CompetitorJobRef {
+  id: number;
+  competitor_id: number;
+}
+
+/**
+ * Everything still in flight in the workspace, fetched once on mount so a
+ * page reload can re-attach pollers to work it did not start.
+ *
+ * Poll state lives in React memory; without this a refresh orphaned every
+ * running job — the work carried on server-side but the UI never learned it
+ * had finished.
+ */
+export interface ActiveJobs {
+  check_runs: CheckRun[];
+  check_sweeps: CheckSweep[];
+  briefing_job_ids: number[];
+  battlecard_update_jobs: CompetitorJobRef[];
+  competitor_discovery_jobs: CompetitorJobRef[];
+}

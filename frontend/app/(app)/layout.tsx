@@ -5,6 +5,8 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { BriefingJobsProvider } from "@/lib/briefing-jobs-context";
 import { BattlecardJobsProvider } from "@/lib/battlecard-jobs-context";
 import { CompetitorDiscoveryJobsProvider } from "@/lib/competitor-discovery-jobs-context";
+import { CheckJobsProvider } from "@/lib/check-jobs-context";
+import ActiveJobsRehydrator from "@/lib/active-jobs-rehydrator";
 import Sidebar from "@/components/shell/Sidebar";
 import Header from "@/components/shell/Header";
 
@@ -46,7 +48,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <BriefingJobsProvider>
           <BattlecardJobsProvider>
             <CompetitorDiscoveryJobsProvider>
-              <Shell>{children}</Shell>
+              <CheckJobsProvider>
+                {/* Innermost, so it can reach every provider's track function
+                    and re-attach pollers to jobs this tab did not start. */}
+                <ActiveJobsRehydrator />
+                <Shell>{children}</Shell>
+              </CheckJobsProvider>
             </CompetitorDiscoveryJobsProvider>
           </BattlecardJobsProvider>
         </BriefingJobsProvider>

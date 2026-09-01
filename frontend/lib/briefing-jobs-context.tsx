@@ -24,6 +24,9 @@ interface StartBriefingJobPayload {
 
 interface BriefingJobsContextValue {
   startBriefingJob: (payload: StartBriefingJobPayload) => Promise<boolean>;
+  // Re-attach to a job this tab did not start, after a reload discarded the
+  // poller that was watching it. See lib/active-jobs-rehydrator.tsx.
+  trackBriefingJob: (jobId: number) => void;
   activeJobCount: number;
   // Bumps by one every time any job resolves (success or failure) — pages
   // that list briefings can watch this in a useEffect to refetch without
@@ -114,8 +117,18 @@ export function BriefingJobsProvider({ children }: { children: ReactNode }) {
     [workspaceId, pollJob, push]
   );
 
+  const trackBriefingJob = useCallback(
+    (jobId: number) => {
+      if (!workspaceId) return;
+      pollJob(workspaceId, jobId);
+    },
+    [workspaceId, pollJob]
+  );
+
   return (
-    <BriefingJobsContext.Provider value={{ startBriefingJob, activeJobCount, completedCount }}>
+    <BriefingJobsContext.Provider
+      value={{ startBriefingJob, trackBriefingJob, activeJobCount, completedCount }}
+    >
       {children}
     </BriefingJobsContext.Provider>
   );

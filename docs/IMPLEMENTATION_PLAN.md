@@ -9,7 +9,7 @@ The target is the full product described in the user's own spec doc ("Competitiv
 User decisions locked in for this plan:
 1. **Scope:** build everything in the spec (not just an MVP slice).
 2. **LLM provider:** NVIDIA NIM, via its OpenAI-compatible chat completions API (`openai` SDK pointed at `https://integrate.api.nvidia.com/v1`), behind a provider-agnostic wrapper so swapping models/providers later is a config change.
-3. **Scheduling:** in-process APScheduler inside FastAPI (no Redis/Celery) — accepted tradeoff: only correct for a single app instance.
+3. **Scheduling:** in-process APScheduler inside FastAPI (no Redis/Celery) — accepted tradeoff: only correct for a single app instance. **Partly superseded:** background *job execution* moved to arq + Redis on a separate worker service (see `docs/QUEUE_AND_WORKER.md`); the scheduler itself still lives in the web process, so the single-instance constraint continues to apply to the web service alone.
 
 This is a large, multi-session effort. The plan is ordered so each phase unblocks the next and schema/tenancy decisions don't need to be retrofitted later.
 

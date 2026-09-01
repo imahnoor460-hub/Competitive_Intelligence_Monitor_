@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.models.llm_usage import TokenUsageLog
 from app.models.workspace_budget import WorkspaceBudget
@@ -26,10 +27,25 @@ def get_or_create_budget(db: Session, workspace_id: int) -> WorkspaceBudget:
     if budget is not None:
         return budget
 
-    budget = WorkspaceBudget(workspace_id=workspace_id)
-    db.add(budget)
-    db.flush()
-    return budget
+    # Two checks of the same workspace can now run at the same instant in
+    # different worker processes, and both can pass the SELECT above before
+    # either INSERTs — workspace_id is the primary key, so the loser used to
+    # die on a UniqueViolation that poisoned the whole session and failed the
+    # check. The savepoint confines that failure to this INSERT, leaving the
+    # caller's transaction intact so the loser can simply read the winner's
+    # row. Harmless before checks were parallelised; required now.
+    try:
+        with db.begin_nested():
+            budget = WorkspaceBudget(workspace_id=workspace_id)
+            db.add(budget)
+            db.flush()
+        return budget
+    except IntegrityError:
+        return (
+            db.query(WorkspaceBudget)
+            .filter(WorkspaceBudget.workspace_id == workspace_id)
+            .one()
+        )
 
 
 def estimate_spend_usd(db: Session, workspace_id: int, since: datetime) -> float:

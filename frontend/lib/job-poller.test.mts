@@ -266,3 +266,80 @@ test("overlapping terminal responses settle the job exactly once", async (t) => 
 
   assert.equal(settleCount, 1);
 });
+
+test("onUpdate reports every response, including the terminal one", async (t) => {
+  // A sweep's finished/total is only useful while it runs, and the terminal
+  // response carries the final counts — reporting progress on non-terminal
+  // ticks alone would leave the second-to-last numbers on screen forever.
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const registry = new JobPollerRegistry(INTERVAL);
+  const { poll } = stubPoll(["running", "running", "success"]);
+  const seen: string[] = [];
+  let settleCount = 0;
+
+  registry.start(
+    7,
+    poll,
+    () => {
+      settleCount += 1;
+    },
+    (job) => {
+      seen.push(job.status);
+    }
+  );
+
+  for (let i = 0; i < 4; i += 1) {
+    t.mock.timers.tick(INTERVAL);
+    await flush();
+  }
+
+  assert.deepEqual(seen, ["running", "running", "success"]);
+  assert.equal(settleCount, 1, "progress reporting does not re-settle the job");
+});
+
+test("onUpdate is not called again after the job has settled", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const registry = new JobPollerRegistry(INTERVAL);
+  const { poll } = stubPoll(["success"]);
+  let updates = 0;
+
+  registry.start(
+    8,
+    poll,
+    () => {},
+    () => {
+      updates += 1;
+    }
+  );
+
+  t.mock.timers.tick(INTERVAL * 5);
+  await flush();
+
+  assert.equal(updates, 1);
+});
+
+test("a poller with no onUpdate still settles normally", async (t) => {
+  // Every existing call site omits it; the callback must stay optional.
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const registry = new JobPollerRegistry(INTERVAL);
+  const { poll } = stubPoll(["running", "failed"]);
+  const settled: FakeJob[] = [];
+
+  registry.start(9, poll, (job) => {
+    settled.push(job);
+  });
+
+  // Ticked one interval at a time with a flush between: mocked timers fire
+  // synchronously, so ticking three intervals at once would start one request
+  // and skip the other two on `inFlight`, never reaching the "failed" reply.
+  for (let i = 0; i < 3; i += 1) {
+    t.mock.timers.tick(INTERVAL);
+    await flush();
+  }
+
+  assert.deepEqual(
+    settled.map((job) => job.status),
+    ["failed"]
+  );
+  assert.equal(registry.isPolling(9), false);
+});

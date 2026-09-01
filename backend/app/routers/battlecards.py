@@ -20,6 +20,7 @@ from app.dependencies import (
 )
 from app.services.budget_service import check_budget, BudgetExceededError
 from app.services.llm.factory import get_llm_client
+from app.queue import JobSpec, dispatch_job
 from app.services.battlecard_service import run_battlecard_update_job
 
 router = APIRouter(
@@ -113,7 +114,17 @@ def propose_update(
     db.commit()
     db.refresh(job)
 
-    background_tasks.add_task(run_battlecard_update_job, job.id)
+    # See app/queue.py — arq when REDIS_URL is set, BackgroundTasks
+    # otherwise. Unique per row, so the queue key is a backstop here.
+    dispatch_job(
+        background_tasks,
+        JobSpec(
+            task_name="run_battlecard_update_job",
+            fn=run_battlecard_update_job,
+            args=(job.id,),
+            job_id=f"battlecard:{job.id}",
+        ),
+    )
 
     return job
 

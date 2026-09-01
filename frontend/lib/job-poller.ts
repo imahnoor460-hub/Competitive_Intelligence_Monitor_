@@ -57,7 +57,15 @@ export class JobPollerRegistry {
   start<T extends { status: string }>(
     jobId: number,
     poll: () => Promise<T>,
-    onSettled: (job: T) => void
+    onSettled: (job: T) => void,
+    /**
+     * Called with every successful poll response, terminal or not, before
+     * `onSettled`. Exists for jobs that report progress while they run — a
+     * check sweep's `finished`/`total` is only useful mid-flight, and a
+     * settle-only callback would show the count for the first time at the
+     * moment it stops mattering.
+     */
+    onUpdate?: (job: T) => void
   ): boolean {
     // Idempotent by job id. This is what makes a repeated call, a rerender, or
     // the same job arriving in two state updates harmless.
@@ -79,6 +87,12 @@ export class JobPollerRegistry {
         .then((job) => {
           // A second terminal response can't re-settle the job.
           if (poller.settled) return;
+
+          // Progress first: the terminal response carries the final counts,
+          // so settling without reporting it would leave the last tick's
+          // stale numbers on screen.
+          onUpdate?.(job);
+
           if (!isTerminalStatus(job.status)) return;
 
           poller.settled = true;

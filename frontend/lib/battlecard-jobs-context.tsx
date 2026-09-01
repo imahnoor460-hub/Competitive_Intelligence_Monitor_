@@ -23,6 +23,10 @@ interface StartBattlecardUpdateJobPayload {
 
 interface BattlecardJobsContextValue {
   startBattlecardUpdateJob: (payload: StartBattlecardUpdateJobPayload) => Promise<boolean>;
+  // Re-attach to a job this tab did not start, after a reload discarded the
+  // poller that was watching it. Takes the competitor id because the poll URL
+  // is nested under it. See lib/active-jobs-rehydrator.tsx.
+  trackBattlecardUpdateJob: (competitorId: number, jobId: number) => void;
   // Competitor ids with a proposal currently generating — lets the page show
   // a "Generating..." state on the right competitor's card instead of a
   // generic global count.
@@ -123,13 +127,26 @@ export function BattlecardJobsProvider({ children }: { children: ReactNode }) {
     [workspaceId, pollJob, push]
   );
 
+  const trackBattlecardUpdateJob = useCallback(
+    (competitorId: number, jobId: number) => {
+      if (!workspaceId) return;
+      pollJob(workspaceId, competitorId, jobId);
+    },
+    [workspaceId, pollJob]
+  );
+
   // Only read during render (`.includes` on the battlecards page), never as a
   // hook dependency, so a fresh array identity each render is harmless.
   const activeCompetitorIds = Array.from(new Set(Object.values(activeByJob)));
 
   return (
     <BattlecardJobsContext.Provider
-      value={{ startBattlecardUpdateJob, activeCompetitorIds, completedCount }}
+      value={{
+        startBattlecardUpdateJob,
+        trackBattlecardUpdateJob,
+        activeCompetitorIds,
+        completedCount,
+      }}
     >
       {children}
     </BattlecardJobsContext.Provider>

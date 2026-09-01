@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.competitor_site_summary import CompetitorSiteSummary
@@ -136,24 +137,38 @@ def generate_site_summary(
         completion_tokens=result.completion_tokens,
     ))
 
-    existing = (
+    summary = (
         db.query(CompetitorSiteSummary)
         .filter(CompetitorSiteSummary.competitor_id == competitor_id)
         .first()
     )
 
-    if existing:
-        existing.categories = result.value.categories
-        existing.current_offers = result.value.current_offers
-        existing.generated_at = datetime.utcnow()
-        summary = existing
-    else:
-        summary = CompetitorSiteSummary(
-            competitor_id=competitor_id,
-            categories=result.value.categories,
-            current_offers=result.value.current_offers,
-        )
-        db.add(summary)
+    if summary is None:
+        # competitor_id is unique here, and a "check all" sweep fans several
+        # surfaces of the same competitor across workers at once — both can
+        # find no row and both try to insert. The 15-minute debounce in
+        # check_service does not help, because neither has written anything
+        # yet when the other looks. The savepoint keeps the losing INSERT from
+        # poisoning the session, so it can fall through to updating the row
+        # the winner just created.
+        try:
+            with db.begin_nested():
+                summary = CompetitorSiteSummary(competitor_id=competitor_id)
+                db.add(summary)
+                db.flush()
+        except IntegrityError:
+            summary = (
+                db.query(CompetitorSiteSummary)
+                .filter(CompetitorSiteSummary.competitor_id == competitor_id)
+                .one()
+            )
+
+    # Written the same way whether the row was just created or already
+    # existed — last writer wins, which is what a rolling "current state of
+    # their site" summary wants.
+    summary.categories = result.value.categories
+    summary.current_offers = result.value.current_offers
+    summary.generated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(summary)

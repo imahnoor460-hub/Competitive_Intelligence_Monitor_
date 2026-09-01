@@ -20,6 +20,7 @@ from app.schemas.competitor import (
 from app.schemas.comparison import ComparisonResponse, BenchmarkComparisonResponse
 from app.dependencies import get_current_user, get_current_workspace, require_role
 from app.services.comparison_service import summarize_competitor
+from app.queue import JobSpec, dispatch_job
 from app.services.competitor_discovery_service import run_competitor_discovery_job
 from app.services.competitor_service import delete_competitor as delete_competitor_cascade
 from app.services.own_site_service import get_own_site
@@ -89,7 +90,17 @@ def create_competitor(
         db.commit()
         db.refresh(job)
 
-        background_tasks.add_task(run_competitor_discovery_job, job.id)
+        # See app/queue.py — arq when REDIS_URL is set, BackgroundTasks
+        # otherwise. Unique per row, so the queue key is a backstop here.
+        dispatch_job(
+            background_tasks,
+            JobSpec(
+                task_name="run_competitor_discovery_job",
+                fn=run_competitor_discovery_job,
+                args=(job.id,),
+                job_id=f"discovery:{job.id}",
+            ),
+        )
         discovery_job_id = job.id
 
     # Neither is a DB column — set only so the create response can hand the

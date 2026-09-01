@@ -4,12 +4,14 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from app.database import SessionLocal
 from app.models.surface import Surface
 from app.models.snapshot import Snapshot
 from app.models.change_log import ChangeLog
 from app.models.competitor import Competitor
 from app.models.competitor_site_summary import CompetitorSiteSummary
 from app.models.check_run import CheckRun, CheckRunStatus
+from app.models.check_sweep import CheckSweep, CheckSweepStatus
 from app.services.snapshot_service import capture_clean_snapshot, FetchError
 from app.services.diff_engine import compute_diff, has_material_diff
 from app.services.screenshot_service import capture_screenshot, ScreenshotError
@@ -20,7 +22,12 @@ from app.services.llm.baseline_summary import summarize_baseline_snapshot
 from app.services.synthesis import embed_change_log
 from app.services.site_summary_service import generate_site_summary
 
-__all__ = ["run_surface_check", "FetchError"]
+__all__ = [
+    "run_surface_check",
+    "enqueue_surface_check",
+    "execute_surface_check",
+    "FetchError",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -42,31 +49,77 @@ _STALE_RUN_MINUTES = 15
 _SITE_SUMMARY_DEBOUNCE_MINUTES = 15
 
 
-def run_surface_check(db: Session, surface: Surface) -> dict:
-    """The single check pipeline for a Surface — called by both the manual
-    'Check now' endpoint and the scheduler, so both paths stay identical.
-    Wraps the check in a CheckRun row so a surface can't have two checks
-    running concurrently (e.g. a slow manual check overlapping a scheduled
-    one).
+def enqueue_surface_check(
+    db: Session, surface: Surface, sweep_id: int | None = None
+) -> tuple[CheckRun, bool]:
+    """Claim the right to check this surface, without doing any of the work.
+
+    Returns `(run, created)`. `created` is False when a check was already
+    queued or running for this surface, in which case the existing run is
+    returned and no second one is made — this is the database half of the
+    duplicate-check guard, and it holds whether the caller goes on to run the
+    check inline or hand it to a worker. The queue's deterministic job id is
+    the other half; either alone is enough, and having both means a duplicate
+    is stopped whichever layer sees it first.
     """
 
     _reclaim_stale_running_checks(db, surface.id)
 
-    already_running = (
+    in_flight = (
         db.query(CheckRun)
         .filter(
             CheckRun.surface_id == surface.id,
-            CheckRun.status == CheckRunStatus.running
+            CheckRun.status.in_([CheckRunStatus.queued, CheckRunStatus.running]),
         )
         .first()
     )
-    if already_running:
-        return {"status": "already_running"}
+    if in_flight:
+        return in_flight, False
 
-    check_run = CheckRun(surface_id=surface.id)
+    check_run = CheckRun(
+        surface_id=surface.id,
+        status=CheckRunStatus.queued,
+        sweep_id=sweep_id,
+        enqueued_at=datetime.utcnow(),
+    )
     db.add(check_run)
     db.commit()
     db.refresh(check_run)
+
+    return check_run, True
+
+
+def run_surface_check(db: Session, surface: Surface) -> dict:
+    """The inline check path — claim a run and execute it in this session.
+
+    Still what the manual endpoint and the scheduler use when no queue is
+    configured, so a Redis-less deployment behaves exactly as it always has.
+    With a queue configured the two halves are split across processes:
+    `enqueue_surface_check` runs in the request, `execute_surface_check` runs
+    in the worker. Both share `_run_claimed_check`, so there is one check
+    pipeline, not two.
+    """
+
+    check_run, created = enqueue_surface_check(db, surface)
+    if not created:
+        return {"status": "already_running", "check_run_id": check_run.id}
+
+    return _run_claimed_check(db, check_run, surface)
+
+
+def _run_claimed_check(db: Session, check_run: CheckRun, surface: Surface) -> dict:
+    """Execute a check whose CheckRun row is already claimed.
+
+    Raises on failure after recording it, so the inline caller still turns a
+    FetchError into a 502. The worker wrapper catches instead — there is
+    nobody to return a status code to there, and the row already says failed.
+    """
+
+    sweep_id = check_run.sweep_id
+    check_run_id = check_run.id
+    check_run.status = CheckRunStatus.running
+    check_run.started_at = datetime.utcnow()
+    db.commit()
 
     try:
         result = _perform_check(db, surface)
@@ -77,27 +130,145 @@ def run_surface_check(db: Session, surface: Surface) -> dict:
         # stale-reclaim kicks in. A failed commit also leaves the session in
         # a broken state, so it must be rolled back before writing to it again.
         db.rollback()
-        check_run.status = CheckRunStatus.failed
-        check_run.error = str(exc)[:2000]
-        check_run.finished_at = datetime.utcnow()
-        db.commit()
+        _finish_run(db, check_run_id, CheckRunStatus.failed, error=str(exc)[:2000])
+        _record_sweep_outcome(db, sweep_id, failed=True)
         raise
 
-    check_run.status = CheckRunStatus.success
-    check_run.finished_at = datetime.utcnow()
+    # Recorded on the row, not just returned, so a worker-executed check can
+    # report the same outcome the inline path puts in its response body.
+    _finish_run(
+        db, check_run_id, CheckRunStatus.success, outcome=result.get("status")
+    )
+    _record_sweep_outcome(db, sweep_id, failed=False)
+
+    # Every check response carries the run id, inline or queued, so a single
+    # frontend code path can poll when the status is `queued` and skip
+    # polling when it already has a terminal result.
+    return {**result, "check_run_id": check_run_id}
+
+
+def execute_surface_check(check_run_id: int) -> None:
+    """Worker entry point for a queued CheckRun.
+
+    Opens its own session rather than reusing a request-scoped one, matching
+    the pattern briefing_service and competitor_discovery_service already use
+    for out-of-request work.
+
+    Idempotent by design: a run that is not still `queued` has already been
+    picked up, so a redelivered message returns without re-running the
+    pipeline — which matters because a re-run would re-bill NIM tokens.
+    """
+
+    db = SessionLocal()
+    try:
+        check_run = db.query(CheckRun).filter(CheckRun.id == check_run_id).first()
+        if check_run is None:
+            logger.warning("Check run %s no longer exists; nothing to do", check_run_id)
+            return
+
+        if check_run.status != CheckRunStatus.queued:
+            logger.info(
+                "Check run %s is %s, not queued — skipping duplicate delivery",
+                check_run_id, check_run.status.value,
+            )
+            return
+
+        surface = (
+            db.query(Surface).filter(Surface.id == check_run.surface_id).first()
+        )
+        if surface is None:
+            sweep_id = check_run.sweep_id
+            _finish_run(
+                db, check_run_id, CheckRunStatus.failed,
+                error="Surface was deleted before the check ran",
+            )
+            _record_sweep_outcome(db, sweep_id, failed=True)
+            return
+
+        try:
+            _run_claimed_check(db, check_run, surface)
+        except Exception as exc:  # noqa: BLE001 — the row already records it
+            logger.warning("Check run %s failed: %s", check_run_id, exc)
+    finally:
+        db.close()
+
+
+def _finish_run(
+    db: Session,
+    check_run_id: int,
+    status: CheckRunStatus,
+    error: str | None = None,
+    outcome: str | None = None,
+) -> None:
+    """Write a run's terminal state by id rather than through a held instance.
+
+    The caller may have just rolled back, which expires every instance in the
+    session; re-reading is both cheaper and safer than trusting one that may
+    now be detached or stale.
+    """
+
+    run = db.query(CheckRun).filter(CheckRun.id == check_run_id).first()
+    if run is None:
+        return
+
+    run.status = status
+    run.error = error
+    run.outcome = outcome
+    run.finished_at = datetime.utcnow()
     db.commit()
 
-    return result
+
+def _record_sweep_outcome(db: Session, sweep_id: int | None, failed: bool) -> None:
+    """Count one finished child against its sweep, and close the sweep when
+    the last one lands.
+
+    The increments are SQL-side (`finished = finished + 1`) rather than
+    read-modify-write: sweeps fan out across concurrent workers in separate
+    processes, and two of them reading the same value before either writes
+    would silently lose a completion and leave the sweep stuck below total.
+    """
+
+    if sweep_id is None:
+        return
+
+    db.query(CheckSweep).filter(CheckSweep.id == sweep_id).update(
+        {
+            CheckSweep.finished: CheckSweep.finished + 1,
+            CheckSweep.failed_count: CheckSweep.failed_count + (1 if failed else 0),
+            CheckSweep.status: CheckSweepStatus.running,
+        },
+        synchronize_session=False,
+    )
+    db.commit()
+
+    sweep = db.query(CheckSweep).filter(CheckSweep.id == sweep_id).first()
+    if sweep is None or sweep.finished < sweep.total:
+        return
+
+    # Every check failing is the only case reported as a failed sweep; a
+    # partial failure stays `success` with failed_count telling the real
+    # story, so the frontend's terminal-status set stays success|failed.
+    sweep.status = (
+        CheckSweepStatus.failed
+        if sweep.total > 0 and sweep.failed_count >= sweep.total
+        else CheckSweepStatus.success
+    )
+    sweep.finished_at = datetime.utcnow()
+    db.commit()
 
 
 def _reclaim_stale_running_checks(db: Session, surface_id: int) -> None:
     threshold = datetime.utcnow() - timedelta(minutes=_STALE_RUN_MINUTES)
 
+    # `queued` is reclaimed on the same threshold as `running`. A row whose
+    # queue message was never delivered would otherwise block this surface
+    # from ever being checked again, since the in-flight guard above counts
+    # it as a check already under way.
     stale_runs = (
         db.query(CheckRun)
         .filter(
             CheckRun.surface_id == surface_id,
-            CheckRun.status == CheckRunStatus.running,
+            CheckRun.status.in_([CheckRunStatus.queued, CheckRunStatus.running]),
             CheckRun.started_at < threshold
         )
         .all()

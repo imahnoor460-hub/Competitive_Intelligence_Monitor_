@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,7 +11,13 @@ from app.schemas.surface import SurfaceCreate, SurfaceResponse
 from app.schemas.check_run import CheckRunResponse
 from app.schemas.snapshot import SnapshotResponse
 from app.dependencies import get_current_workspace, require_role, rate_limit
-from app.services.check_service import run_surface_check, FetchError
+from app.queue import JobSpec, dispatch_job, queue_is_configured
+from app.services.check_service import (
+    enqueue_surface_check,
+    execute_surface_check,
+    run_surface_check,
+    FetchError,
+)
 from app.services.surface_discovery_service import discover_surfaces, normalize_url, SurfaceDiscoveryError
 from app.scheduler import schedule_surface, unschedule_surface
 
@@ -199,10 +205,24 @@ def check_surface(
     workspace_id: int,
     competitor_id: int,
     surface_id: int,
+    response: Response,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
     _rate_limit: None = Depends(rate_limit("surface-check"))
 ):
+    """Runs a check, or queues one.
+
+    The response body has one shape either way — `{"status": ...,
+    "check_run_id": N}` — so the frontend has a single code path: poll the
+    run when the status is `queued`, and use the result directly otherwise.
+
+    With a queue configured this returns 202 immediately and a worker does
+    the browser and LLM work. Without one it runs the check inline and
+    returns 200 with the finished result, exactly as this endpoint always
+    has, which is what keeps a Redis-less deployment and the test suite
+    working unchanged.
+    """
 
     _get_owned_competitor(db, workspace_id, competitor_id)
 
@@ -214,6 +234,35 @@ def check_surface(
 
     if not surface:
         raise HTTPException(status_code=404, detail="Surface not found")
+
+    if queue_is_configured():
+        check_run, created = enqueue_surface_check(db, surface)
+
+        if created:
+            # Keyed on the check run, not the surface. A surface-scoped key
+            # looks like better deduplication but is actively wrong: arq
+            # refuses an id whose *result* still exists, and results live for
+            # `keep_result` seconds after completion, so a surface could not
+            # be re-checked for five minutes — the new row would sit at
+            # `queued` until the stale reclaimer failed it. Duplicate checks
+            # are prevented by the in-flight guard in enqueue_surface_check,
+            # which is transactional and authoritative; the queue id only has
+            # to guarantee this particular run gets delivered exactly once.
+            dispatch_job(
+                background_tasks,
+                JobSpec(
+                    task_name="execute_surface_check",
+                    fn=execute_surface_check,
+                    args=(check_run.id,),
+                    job_id=f"check:run:{check_run.id}",
+                ),
+            )
+            response.status_code = 202
+
+        return {
+            "status": "queued" if created else "already_running",
+            "check_run_id": check_run.id,
+        }
 
     try:
         return run_surface_check(db, surface)

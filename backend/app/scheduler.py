@@ -9,7 +9,12 @@ from apscheduler.jobstores.base import JobLookupError
 from app.database import SessionLocal
 from app.models.surface import Surface
 from app.models.briefing import Briefing, BriefingStatus, BriefingDigestType
-from app.services.check_service import run_surface_check
+from app.queue import JobSpec, dispatch_job, queue_is_configured
+from app.services.check_service import (
+    enqueue_surface_check,
+    execute_surface_check,
+    run_surface_check,
+)
 from app.services.snapshot_service import FetchError
 
 logger = logging.getLogger(__name__)
@@ -36,6 +41,30 @@ def run_scheduled_check(surface_id: int) -> None:
     try:
         surface = db.query(Surface).filter(Surface.id == surface_id).first()
         if surface is None or not surface.is_active:
+            return
+
+        if queue_is_configured():
+            # Hand the browser and LLM work to the worker rather than doing it
+            # here. This is what stops scheduled checks competing with request
+            # handling for the web process's threadpool — the tick now costs
+            # one INSERT and one enqueue. Passing background_tasks=None is
+            # deliberate: there is no request to attach to, and with a queue
+            # configured none is needed.
+            check_run, created = enqueue_surface_check(db, surface)
+            if not created:
+                logger.info("Surface %s already has a check in flight", surface_id)
+                return
+
+            dispatch_job(
+                None,
+                JobSpec(
+                    task_name="execute_surface_check",
+                    fn=execute_surface_check,
+                    args=(check_run.id,),
+                    job_id=f"check:run:{check_run.id}",
+                ),
+            )
+            logger.info("Scheduled check for surface %s queued", surface_id)
             return
 
         try:
@@ -134,6 +163,34 @@ def schedule_digest_jobs() -> None:
     )
 
 
+def _run_job_reconciler() -> None:
+    from app.services.job_reconciler import reconcile_stuck_jobs
+
+    try:
+        reconcile_stuck_jobs()
+    except Exception as exc:  # noqa: BLE001 — a failed sweep must not kill the scheduler
+        logger.warning("Job reconciler pass failed: %s", exc)
+
+
+def schedule_job_reconciler() -> None:
+    """Resolve jobs the queue never delivered or a worker died holding.
+
+    Runs in the web process rather than the worker on purpose: the case it
+    exists to catch is precisely the one where no worker is consuming, so a
+    reconciler living in the worker would be asleep exactly when it is needed.
+    The pass is two indexed queries and, in the normal case, changes nothing.
+    """
+
+    scheduler.add_job(
+        _run_job_reconciler,
+        trigger=IntervalTrigger(minutes=5),
+        id="job-reconciler",
+        replace_existing=True,
+        misfire_grace_time=120,
+        jitter=30,
+    )
+
+
 def start_scheduler() -> None:
     db = SessionLocal()
     try:
@@ -144,6 +201,7 @@ def start_scheduler() -> None:
         db.close()
 
     schedule_digest_jobs()
+    schedule_job_reconciler()
     scheduler.start()
 
 

@@ -5,21 +5,20 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useWorkspaceContext } from "@/lib/workspace-context";
+import { useCheckJobs } from "@/lib/check-jobs-context";
 import { ChangeLog, Competitor, Snapshot, Surface } from "@/lib/types";
 import { surfaceDisplayName } from "@/lib/surface-name";
 import { SURFACE_TYPE_STYLES, HeadingDot, BaselineCard, ChangeCard } from "@/components/changelog/SurfaceChangeCards";
-
-type CheckStatus =
-  | { state: "idle" }
-  | { state: "checking" }
-  | { state: "done"; message: string }
-  | { state: "error"; message: string };
 
 export default function SurfaceDetailPage() {
   const params = useParams();
   const competitorId = Number(params.id);
   const surfaceId = Number(params.surfaceId);
   const { workspaceId, ready: contextReady, canEdit } = useWorkspaceContext();
+  // Check state lives in the provider, not here: with a queue configured the
+  // check outlives this page, and a reload has to be able to pick it back up.
+  const { startSurfaceCheck, surfaceCheckState, completedCount } = useCheckJobs();
+  const checkStatus = surfaceCheckState(surfaceId);
 
   const [loading, setLoading] = useState(true);
   const [competitor, setCompetitor] = useState<Competitor | null>(null);
@@ -27,7 +26,6 @@ export default function SurfaceDetailPage() {
   const [changeLogs, setChangeLogs] = useState<ChangeLog[]>([]);
   const [baselineSnapshot, setBaselineSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [checkStatus, setCheckStatus] = useState<CheckStatus>({ state: "idle" });
   const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(
@@ -86,28 +84,18 @@ export default function SurfaceDetailPage() {
   }, [workspaceId, load]);
 
   async function handleCheckSurface() {
-    if (!workspaceId) return;
-    setCheckStatus({ state: "checking" });
-    try {
-      const result = await apiFetch(
-        `/workspaces/${workspaceId}/competitors/${competitorId}/surfaces/${surfaceId}/check`,
-        { method: "POST" }
-      );
-      const messages: Record<string, string> = {
-        baseline_captured: "Baseline captured",
-        no_change: "No change detected",
-        change_detected: "Change detected",
-        already_running: "A check is already running",
-      };
-      setCheckStatus({ state: "done", message: messages[result.status] ?? result.status });
-      await load(workspaceId);
-    } catch (err) {
-      setCheckStatus({
-        state: "error",
-        message: err instanceof ApiError ? err.message : "Check failed",
-      });
-    }
+    await startSurfaceCheck(competitorId, surfaceId);
   }
+
+  // A queued check finishes in a worker, long after the click. Refetch when
+  // one settles so the change it found actually appears, rather than waiting
+  // for the user to reload the page themselves.
+  useEffect(() => {
+    if (completedCount === 0 || !workspaceId) return;
+    void (async () => {
+      await load(workspaceId);
+    })();
+  }, [completedCount, workspaceId, load]);
 
   async function handleDeleteSurface() {
     if (!workspaceId || !surface) return;

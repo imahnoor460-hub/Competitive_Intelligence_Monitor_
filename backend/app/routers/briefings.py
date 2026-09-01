@@ -15,6 +15,7 @@ from app.dependencies import (
 )
 from app.services.budget_service import check_budget, BudgetExceededError
 from app.services.llm.factory import get_llm_client
+from app.queue import JobSpec, dispatch_job
 from app.services.briefing_service import run_briefing_job
 
 router = APIRouter(
@@ -73,7 +74,20 @@ def generate_now(
     db.commit()
     db.refresh(job)
 
-    background_tasks.add_task(run_briefing_job, job.id)
+    # Queued through arq when REDIS_URL is set, otherwise via BackgroundTasks
+    # exactly as before (see app/queue.py). The job row is already committed
+    # either way, so the response and the frontend's poll are unaffected by
+    # which transport carried it. The job id is unique per row, so the
+    # queue-level dedupe is a backstop here rather than the main guard.
+    dispatch_job(
+        background_tasks,
+        JobSpec(
+            task_name="run_briefing_job",
+            fn=run_briefing_job,
+            args=(job.id,),
+            job_id=f"briefing:{job.id}",
+        ),
+    )
 
     return job
 

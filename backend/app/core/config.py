@@ -32,6 +32,25 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("NIM_EMBED_MODEL", "NVIDIA_EMBED_MODEL"),
     )
 
+    # Queue transport for background jobs (arq). Redis carries the job
+    # *message* only — every job's status, result and error lives in its
+    # Postgres row, which stays the single source of truth. Losing Redis
+    # therefore costs throughput, never a user-visible record; the
+    # job_reconciler resolves rows whose message never arrived.
+    #
+    # None means "no queue configured": enqueue falls back to running the
+    # job inline, which is what keeps the test suite and a Redis-less local
+    # dev environment working exactly as they did before.
+    redis_url: str | None = None
+
+    # Each concurrent job can hold a Chromium process (~300MB resident), so
+    # this is bounded by worker memory rather than CPU. Start low.
+    arq_max_jobs: int = 2
+
+    # Generous, because a site-summary fan-out across a 40-surface competitor
+    # is minutes of browser work by design (see site_summary_service).
+    arq_job_timeout: int = 900
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None
