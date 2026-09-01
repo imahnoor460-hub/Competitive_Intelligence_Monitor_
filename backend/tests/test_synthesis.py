@@ -94,6 +94,122 @@ def test_find_similar_changes_returns_empty_when_no_embedding(db_session):
     assert find_similar_changes(db_session, workspace.id, 999999) == []
 
 
+_OLD_EMBED_MODEL = "nvidia/nv-embedqa-e5-v5"      # retired, 1024-dim
+_NEW_EMBED_MODEL = "nvidia/nemotron-3-embed-1b"   # current, 2048-dim
+
+
+def _seed_mixed_model_embeddings(db_session):
+    """Two 2048-dim rows from the current embedding model plus one 1024-dim
+    row left behind by the retired one, mirroring a real table after the
+    model swap.
+
+    The old row's vector is chosen so that a truncating comparison against
+    the target scores a perfect 1.0 — higher than the genuinely-similar
+    same-model row — so if the model filter is ever dropped this test fails
+    on ordering, not just on membership.
+    """
+    user = User(email="dims@example.com", hashed_password="x", full_name="Dims")
+    db_session.add(user)
+    db_session.flush()
+
+    workspace = Workspace(name="Dims", slug="dims")
+    db_session.add(workspace)
+    db_session.flush()
+
+    db_session.add(WorkspaceMember(
+        workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.owner
+    ))
+
+    competitor = Competitor(
+        name="Rival", workspace_id=workspace.id, created_by_user_id=user.id
+    )
+    db_session.add(competitor)
+    db_session.flush()
+
+    surface = Surface(
+        competitor_id=competitor.id, surface_type=SurfaceType.pricing,
+        url="https://dims.example.com",
+    )
+    db_session.add(surface)
+    db_session.flush()
+
+    def _change(diff, rationale):
+        return ChangeLog(
+            competitor_id=competitor.id, surface_id=surface.id, new_snapshot_id=1,
+            diff=diff, classification="pricing_move", rationale=rationale,
+            materiality_score=50,
+        )
+
+    target_cl = _change("target", "Target change.")
+    same_model_cl = _change("same model", "Embedded by the current model.")
+    old_model_cl = _change("old model", "Embedded by the retired model.")
+    db_session.add_all([target_cl, same_model_cl, old_model_cl])
+    db_session.flush()
+
+    target_vec = [1.0] * 1024 + [0.0] * 1024          # 2048-dim
+    old_vec = [1.0] * 1024                             # 1024-dim, truncates to 1.0
+    same_model_vec = [1.0] * 512 + [0.0] * 1536        # 2048-dim, ~0.707
+
+    db_session.add_all([
+        ChangeEmbedding(
+            change_log_id=target_cl.id, workspace_id=workspace.id,
+            vector=target_vec, model=_NEW_EMBED_MODEL,
+        ),
+        ChangeEmbedding(
+            change_log_id=same_model_cl.id, workspace_id=workspace.id,
+            vector=same_model_vec, model=_NEW_EMBED_MODEL,
+        ),
+        ChangeEmbedding(
+            change_log_id=old_model_cl.id, workspace_id=workspace.id,
+            vector=old_vec, model=_OLD_EMBED_MODEL,
+        ),
+    ])
+    db_session.commit()
+
+    return workspace, target_cl, same_model_cl, old_model_cl
+
+
+def test_cosine_similarity_silently_truncates_mismatched_dimensions():
+    """Documents WHY find_similar_changes must filter by model: comparing a
+    2048-dim vector against a 1024-dim one does not raise, it returns a
+    confident, meaningless 1.0. The filter is the only thing preventing that.
+    """
+    assert _cosine_similarity([1.0] * 1024 + [0.0] * 1024, [1.0] * 1024) == pytest.approx(1.0)
+
+
+def test_find_similar_changes_ignores_embeddings_from_a_different_model(db_session):
+    workspace, target_cl, same_model_cl, old_model_cl = _seed_mixed_model_embeddings(db_session)
+
+    results = find_similar_changes(db_session, workspace.id, target_cl.id, top_k=5)
+
+    # The 1024-dim row from the retired model must not appear at all — even
+    # though a truncating comparison would have ranked it top with 1.0.
+    assert [r.change_log.id for r in results] == [same_model_cl.id]
+    assert results[0].similarity == pytest.approx(0.7071, abs=1e-4)
+
+
+def test_find_similar_changes_returns_empty_when_only_other_model_rows_exist(db_session):
+    """A workspace whose only other embeddings came from the retired model
+    yields no matches rather than nonsense ones. Old rows are preserved, they
+    just stop matching until they are re-embedded.
+    """
+    workspace, target_cl, same_model_cl, old_model_cl = _seed_mixed_model_embeddings(db_session)
+
+    db_session.query(ChangeEmbedding).filter(
+        ChangeEmbedding.change_log_id == same_model_cl.id
+    ).delete()
+    db_session.commit()
+
+    assert find_similar_changes(db_session, workspace.id, target_cl.id) == []
+
+    # The retired-model row is still on disk, untouched.
+    surviving = db_session.query(ChangeEmbedding).filter(
+        ChangeEmbedding.change_log_id == old_model_cl.id
+    ).one()
+    assert surviving.model == _OLD_EMBED_MODEL
+    assert len(surviving.vector) == 1024
+
+
 class _FakeSynthesisLLMClient:
     def __init__(self, summary: str):
         self._summary = summary

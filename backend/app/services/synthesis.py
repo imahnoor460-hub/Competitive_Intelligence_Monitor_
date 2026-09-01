@@ -79,11 +79,19 @@ def find_similar_changes(
     if target is None:
         return []
 
+    # Only compare against rows embedded by the same model. Embedding spaces
+    # aren't comparable across models even at equal dimensionality, and when
+    # the dimensions differ (nv-embedqa-e5-v5 was 1024, nemotron-3-embed-1b
+    # is 2048) _cosine_similarity's zip() truncates to the shorter vector
+    # instead of raising — so mixing models yields a plausible-looking but
+    # meaningless score. Rows from a retired model stay in the table and
+    # simply stop matching until they're re-embedded.
     candidates = (
         db.query(ChangeEmbedding)
         .filter(
             ChangeEmbedding.workspace_id == workspace_id,
-            ChangeEmbedding.change_log_id != change_log_id
+            ChangeEmbedding.change_log_id != change_log_id,
+            ChangeEmbedding.model == target.model
         )
         .all()
     )

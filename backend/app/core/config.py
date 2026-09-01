@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,8 +12,25 @@ class Settings(BaseSettings):
 
     nvidia_api_key: str | None = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_chat_model: str = "nvidia/nemotron-3-nano-30b-a3b"
-    nvidia_embed_model: str = "nvidia/nv-embedqa-e5-v5"
+
+    # NIM retires hosted models on published end-of-life dates, after which
+    # every call returns 410 Gone — a pinned default WILL break eventually
+    # (nvidia/nemotron-3-nano-30b-a3b died 2026-09-01, nv-embedqa-e5-v5
+    # 2026-08). Both are overridable via env so a deployer can move to a
+    # live model without waiting on a code change; NIM_* is the documented
+    # name, NVIDIA_* is kept so existing deployments keep working.
+    nvidia_chat_model: str = Field(
+        default="nvidia/nemotron-3-super-120b-a12b",
+        validation_alias=AliasChoices("NIM_CHAT_MODEL", "NVIDIA_CHAT_MODEL"),
+    )
+    # 2048-dim. Changing this invalidates every stored ChangeEmbedding.vector:
+    # find_similar_changes compares vectors across rows with zip(), which
+    # silently truncates to the shorter of two differing dimensions rather
+    # than raising, so mixed-model rows yield quietly wrong similarity.
+    nvidia_embed_model: str = Field(
+        default="nvidia/nemotron-3-embed-1b",
+        validation_alias=AliasChoices("NIM_EMBED_MODEL", "NVIDIA_EMBED_MODEL"),
+    )
 
     smtp_host: str | None = None
     smtp_port: int = 587
