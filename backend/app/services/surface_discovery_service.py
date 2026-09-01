@@ -135,11 +135,31 @@ def discover_surfaces(homepage_url: str) -> list[tuple[SurfaceType, str | None, 
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(
+                # Required in a container: Chromium's sandbox needs user
+                # namespaces that aren't available running as root, and the
+                # default /dev/shm (64MB on most container runtimes) is far
+                # too small for it — without these two it either fails to
+                # start or dies partway through a heavy page, which surfaces
+                # to the caller as "discovery found nothing". Matches
+                # rendered_content_service, which already passes them.
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ]
+            )
             try:
                 page = browser.new_page()
                 try:
-                    resp = page.goto(homepage_url, wait_until="commit", timeout=_GOTO_TIMEOUT_MS)
+                    # domcontentloaded, not "commit": this function reads the
+                    # DOM for links, and "commit" returns as soon as the
+                    # response headers land, leaving _SETTLE_MS as the only
+                    # thing standing between an empty document and the
+                    # selector below. On a slow container that isn't enough,
+                    # and discovery quietly returns just "Home".
+                    resp = page.goto(
+                        homepage_url, wait_until="domcontentloaded", timeout=_GOTO_TIMEOUT_MS
+                    )
                     logging.info("goto returned %s", resp.status if resp else None)
                 except PlaywrightTimeoutError:
                     logging.error("timeout; page.url=%s title=%s",

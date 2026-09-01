@@ -39,7 +39,17 @@ def capture_screenshot(url: str, surface_id: int) -> str:
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(
+                # See surface_discovery_service: without these Chromium
+                # can't start under a container's root user and 64MB
+                # /dev/shm. A failed launch here is caught by the caller and
+                # logged as "screenshot capture failed", so it degrades
+                # quietly into every visual diff being skipped.
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ]
+            )
             try:
                 page = browser.new_page()
                 try:

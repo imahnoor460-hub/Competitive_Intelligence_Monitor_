@@ -3,12 +3,14 @@ from sqlalchemy.orm import Session
 from app.models.approval_item import ApprovalItem, ApprovalItemType
 from app.models.battlecard import Battlecard
 from app.models.battlecard_update import BattlecardUpdate
+from app.models.battlecard_update_job import BattlecardUpdateJob
 from app.models.briefing import briefing_change_logs
 from app.models.change_embedding import ChangeEmbedding
 from app.models.change_log import ChangeLog
 from app.models.check_run import CheckRun
 from app.models.company_profile import CompanyProfile
 from app.models.competitor import Competitor
+from app.models.competitor_discovery_job import CompetitorDiscoveryJob
 from app.models.competitor_site_summary import CompetitorSiteSummary
 from app.models.response_library import ResponseLibraryItem
 from app.models.snapshot import Snapshot
@@ -85,6 +87,17 @@ def delete_competitor(db: Session, workspace_id: int, competitor_id: int) -> boo
         db.delete(surface)
     db.flush()
 
+    # Before the battlecard block below, because a BattlecardUpdateJob has an
+    # FK to *both* competitors.id and battlecard_updates.id — leaving these
+    # rows in place blocks the BattlecardUpdate delete further down as well as
+    # the competitor delete at the end. Every job for this competitor targets
+    # this competitor's battlecard, so clearing them all here settles both
+    # references at once.
+    db.query(BattlecardUpdateJob).filter(
+        BattlecardUpdateJob.competitor_id == competitor.id
+    ).delete(synchronize_session=False)
+    db.flush()
+
     battlecard = db.query(Battlecard).filter(Battlecard.competitor_id == competitor.id).first()
     if battlecard is not None:
         battlecard_update_ids = [
@@ -104,6 +117,13 @@ def delete_competitor(db: Session, workspace_id: int, competitor_id: int) -> boo
             db.flush()
         db.delete(battlecard)
 
+    # Every competitor added with a website_url gets one of these at creation
+    # (see routers/competitor.py::create_competitor), so this is the one
+    # dependent row essentially guaranteed to exist — and the FK that failed
+    # every delete before it was cleaned up here.
+    db.query(CompetitorDiscoveryJob).filter(
+        CompetitorDiscoveryJob.competitor_id == competitor.id
+    ).delete(synchronize_session=False)
     db.query(CompanyProfile).filter(CompanyProfile.competitor_id == competitor.id).delete(
         synchronize_session=False
     )
