@@ -48,6 +48,12 @@ _STALE_RUN_MINUTES = 15
 # normally checked hours apart (daily/weekly) anyway.
 _SITE_SUMMARY_DEBOUNCE_MINUTES = 15
 
+# How many surfaces the *automatic* post-check site summary may read. The
+# manual refresh is unbounded; this path fires on every check that finds new
+# content, so it is bounded to keep one check from fanning out across all 40
+# surfaces a competitor is allowed to have.
+_SITE_SUMMARY_AUTO_MAX_PAGES = 8
+
 
 def enqueue_surface_check(
     db: Session, surface: Surface, sweep_id: int | None = None
@@ -521,14 +527,18 @@ def _apply_site_summary(db: Session, surface: Surface) -> None:
     fresh without requiring a manual click, and isn't re-analyzed when
     nothing actually changed.
 
-    generate_site_summary always uses a JS-rendered fetch, not the plain
-    snapshot text just captured earlier in this same check — an earlier
-    version of this function skipped that render here to save one browser
-    launch per check, but that meant an automatic run could silently
-    overwrite a good, accurate summary with an empty one derived from a
-    JS-empty plain-HTTP snapshot (exactly the failure mode this whole
-    feature exists to avoid). One extra browser launch per surface per
-    check (at most a few times a day) is not a real cost concern.
+    Capped at `_SITE_SUMMARY_AUTO_MAX_PAGES` surfaces, with the surface whose
+    check triggered this placed first. Uncapped, one check fanned out across
+    every active surface of the competitor — up to 40, each its own fetch —
+    so a single detected change cost dozens of network round trips, and
+    before site_summary_service went HTTP-first, dozens of browser launches.
+    The manual "Analyze site" refresh still considers every surface; it is
+    user-initiated and runs one at a time, whereas this fires on every check.
+
+    The accuracy concern that once justified rendering every page is now
+    handled inside site_summary_service._page_text, which falls back to a
+    browser only when a plain fetch comes back short enough to look
+    JavaScript-empty.
     """
 
     llm_client = get_llm_client()
@@ -553,7 +563,14 @@ def _apply_site_summary(db: Session, surface: Surface) -> None:
         return
 
     try:
-        generate_site_summary(db, llm_client, competitor.workspace_id, competitor.id)
+        generate_site_summary(
+            db,
+            llm_client,
+            competitor.workspace_id,
+            competitor.id,
+            max_pages=_SITE_SUMMARY_AUTO_MAX_PAGES,
+            priority_surface_id=surface.id,
+        )
     except Exception as exc:  # noqa: BLE001 — deliberately broad, see docstring
         logger.warning("Site summary generation failed for competitor %s: %s", competitor.id, exc)
         db.rollback()

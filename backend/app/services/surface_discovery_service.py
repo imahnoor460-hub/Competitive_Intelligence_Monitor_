@@ -8,9 +8,16 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
+from app.core.config import settings
 from app.models.surface import SurfaceType
+from app.services.sitemap_discovery_service import (
+    collect_sitemap_urls,
+    SitemapUnavailable,
+)
 
 __all__ = ["discover_surfaces", "normalize_url", "SurfaceDiscoveryError"]
+
+logger = logging.getLogger(__name__)
 
 # A heavy storefront theme (large mega-menu, dozens of third-party scripts —
 # e.g. a big Shopify site) can easily take 20-30s just to reach
@@ -112,8 +119,12 @@ def normalize_url(href: str) -> str | None:
     return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
 
 
-def discover_surfaces(homepage_url: str) -> list[tuple[SurfaceType, str | None, str]]:
-    """Loads `homepage_url` once and collects every internal link in its
+def _discover_via_browser(homepage_url: str) -> list[tuple[SurfaceType, str | None, str]]:
+    """Browser-based discovery. **Opt-in only** — reached solely when
+    `ENABLE_BROWSER_DISCOVERY` is true and the sitemap path found nothing.
+    See `discover_surfaces` for why it is off by default.
+
+    Loads `homepage_url` once and collects every internal link in its
     header/nav/footer — the site's own table of contents — so adding a
     competitor finds all of its pages (about, docs, customers, security,
     pricing, blog, ..., or for a storefront: Sale, New Arrivals,
@@ -216,3 +227,121 @@ def discover_surfaces(homepage_url: str) -> list[tuple[SurfaceType, str | None, 
         results.append((surface_type, name, normalized))
 
     return results
+
+
+# Note the non-capturing group: a character class here would treat "%20" as
+# the four separate characters %, 2, 0 and silently eat digits out of slugs
+# ("diffusion-2-0" -> "Diffusion").
+_URL_WORD_SPLIT = re.compile(r"(?:%20|[-_+\s])+")
+_FILE_SUFFIX = re.compile(r"(?i)\.(?:html?|php|aspx?|jsp)$")
+
+
+def _name_from_url(url: str) -> str | None:
+    """Derives a page name from the last path segment, since a sitemap
+    carries no anchor text: "/collections/ready-to-wear" -> "Ready To Wear".
+    Returns None for a bare origin, which is the homepage and is already
+    named "Home" by the caller.
+    """
+
+    path = urlsplit(url).path.rstrip("/")
+    if not path:
+        return None
+
+    segment = _FILE_SUFFIX.sub("", path.rsplit("/", 1)[-1])
+    words = [w for w in _URL_WORD_SPLIT.split(segment) if w]
+    if not words:
+        return None
+
+    # .title() would mangle words that are already capitalised or contain
+    # digits ("SS24" -> "Ss24"), so only bare lowercase words are promoted.
+    name = " ".join(w.capitalize() if w.islower() else w for w in words)
+    if len(name) > _MAX_NAME_LENGTH:
+        name = name[:_MAX_NAME_LENGTH].rstrip() + "…"
+    return name
+
+
+def _surfaces_from_urls(
+    homepage_url: str, urls: list[str]
+) -> list[tuple[SurfaceType, str | None, str]]:
+    """Shared tail of both discovery paths: normalize, dedupe, classify, cap.
+
+    The homepage always comes first and always counts, so a newly added
+    competitor has at least one page watched even when discovery is thin.
+    """
+
+    home_normalized = normalize_url(homepage_url)
+    results: list[tuple[SurfaceType, str | None, str]] = [
+        (SurfaceType.other, "Home", home_normalized or homepage_url)
+    ]
+
+    seen_urls: set[str] = {home_normalized} if home_normalized else set()
+    # Seeded with the homepage's own name, or a site that also exposes
+    # /pages/home lands a second entry called "Home".
+    seen_names: set[str] = {"home"}
+
+    for url in urls:
+        if len(results) >= _MAX_DISCOVERED:
+            break
+        normalized = normalize_url(url)
+        if not normalized or normalized in seen_urls:
+            continue
+
+        name = _name_from_url(normalized)
+        name_key = name.lower() if name else None
+        if name_key is None:
+            # A path-less URL that isn't the homepage has nothing to
+            # distinguish it; skip rather than storing an unnamed duplicate.
+            continue
+        if name_key in seen_names:
+            continue
+
+        seen_urls.add(normalized)
+        seen_names.add(name_key)
+        results.append(
+            (_classify(name, urlsplit(normalized).path.lower()), name, normalized)
+        )
+
+    return results
+
+
+def discover_surfaces(homepage_url: str) -> list[tuple[SurfaceType, str | None, str]]:
+    """Finds a competitor's pages, sitemap-first.
+
+    robots.txt and sitemap.xml are tried before anything else because they are
+    both cheaper and better. Cheaper: a sitemap pass costs ~45MB and a few
+    seconds, where one Chromium pass over the same storefront peaked at ~596MB
+    and 22s — on a 512MB container that is the difference between working and
+    being OOM-killed. Better: a sitemap is the site's own list of its pages,
+    while scraping a rendered nav finds only what the mega-menu links and
+    depends on JavaScript having painted before a fixed 8s timer expires.
+
+    The browser path is kept, but behind `ENABLE_BROWSER_DISCOVERY`, which
+    defaults to **false**. With it off — the deployed configuration — nothing
+    in this function can launch Chromium: a site with no usable sitemap raises
+    SurfaceDiscoveryError explaining exactly that, which the caller surfaces
+    as a failed discovery job or a 502. That is deliberate. Silently falling
+    back to a browser is what would kill the container, and an honest
+    "couldn't find pages" beats an OOM the user has to diagnose from a
+    restart loop.
+
+    Returns (surface_type, name, url) triples, same contract as before.
+    """
+
+    try:
+        urls = collect_sitemap_urls(homepage_url)
+    except SitemapUnavailable as exc:
+        if not settings.enable_browser_discovery:
+            raise SurfaceDiscoveryError(
+                f"No usable sitemap found for {homepage_url} ({exc}). Browser-based "
+                "discovery is disabled on this deployment (ENABLE_BROWSER_DISCOVERY), "
+                "so no pages could be discovered. Add pages manually, or enable "
+                "browser discovery on a service with enough memory for Chromium."
+            ) from exc
+
+        logger.info(
+            "Sitemap discovery failed for %s (%s); falling back to the browser",
+            homepage_url, exc,
+        )
+        return _discover_via_browser(homepage_url)
+
+    return _surfaces_from_urls(homepage_url, urls)

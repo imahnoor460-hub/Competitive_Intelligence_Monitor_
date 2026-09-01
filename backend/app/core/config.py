@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     # dev environment working exactly as they did before.
     redis_url: str | None = None
 
+    # Off by default, and that default is the deployed configuration. Page
+    # discovery is sitemap-first (see surface_discovery_service); the browser
+    # path is kept only for environments with memory to spare. Measured on a
+    # real storefront: one Chromium discovery pass peaked at ~596MB resident
+    # against a 512MB container limit, so leaving this on is an OOM, not a
+    # slow path. Turn it on only where the worker has ~1GB.
+    enable_browser_discovery: bool = False
+
+    # Same reasoning for the site-summary path, which renders a page per
+    # surface. Off by default: site_summary_service fetches over plain HTTP
+    # and only consults the browser when the HTTP body is short enough to
+    # look JavaScript-empty, so this gates that last resort rather than the
+    # normal path.
+    enable_browser_rendering: bool = False
+
     # Each concurrent job can hold a Chromium process (~300MB resident), so
     # this is bounded by worker memory rather than CPU. Start low.
     arq_max_jobs: int = 2

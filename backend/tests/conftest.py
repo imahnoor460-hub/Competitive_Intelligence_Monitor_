@@ -34,6 +34,7 @@ from app.models.competitor_discovery_job import CompetitorDiscoveryJob  # noqa: 
 from app.models.check_sweep import CheckSweep  # noqa: F401
 from app.services.rate_limiter import reset_rate_limits
 from app.services.rendered_content_service import RenderedContentError
+from app.services.snapshot import FetchError
 
 
 @pytest.fixture()
@@ -134,6 +135,15 @@ def client(db_session, monkeypatch):
         raise RenderedContentError("test default — rendering unavailable")
     monkeypatch.setattr("app.services.site_summary_service.capture_rendered_text", _no_render)
     monkeypatch.setattr("app.services.category_price_service.capture_rendered_text", _no_render)
+
+    # site_summary_service now tries plain HTTP before the browser, so without
+    # a default here every site-summary test would make a real requests.get to
+    # whatever fake domain it seeded. Default to "the fetch failed", which
+    # leaves the stored-snapshot fallback as the path under test; the tests
+    # that specifically exercise HTTP-first override this with real text.
+    def _no_http(url):
+        raise FetchError("test default — plain fetch unavailable")
+    monkeypatch.setattr("app.services.site_summary_service.capture_clean_snapshot", _no_http)
 
     # Rate-limiter state is a module-level dict shared across the whole
     # pytest process, but every test gets a fresh in-memory DB (workspace
