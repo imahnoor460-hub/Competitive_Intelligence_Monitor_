@@ -128,7 +128,10 @@ def _run_claimed_check(db: Session, check_run: CheckRun, surface: Surface) -> di
     db.commit()
 
     try:
-        result = _perform_check(db, surface)
+        # A sweep is a person waiting on a button, so it does the check and
+        # nothing else. Outside a sweep — a scheduled check, or one surface
+        # checked by hand — the site summary still refreshes itself.
+        result = _perform_check(db, surface, allow_site_summary=sweep_id is None)
     except Exception as exc:
         # Catch broadly, not just FetchError — any unhandled exception here
         # (a bad DB value, a bug in scoring/embedding, etc.) must still mark
@@ -295,7 +298,9 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _perform_check(db: Session, surface: Surface) -> dict:
+def _perform_check(
+    db: Session, surface: Surface, allow_site_summary: bool = True
+) -> dict:
     # Every value the fetch/render phase needs is read into a plain local
     # before the db.commit() below hands this session's pooled connection
     # back. expire_on_commit is on (the default), so touching any ORM
@@ -349,7 +354,8 @@ def _perform_check(db: Session, surface: Surface) -> dict:
         db.refresh(new_snapshot)
 
         _apply_baseline_summary(db, surface, new_snapshot)
-        _apply_site_summary(db, surface)
+        if allow_site_summary:
+            _apply_site_summary(db, surface)
 
         return {"status": "baseline_captured"}
 
@@ -387,7 +393,8 @@ def _perform_check(db: Session, surface: Surface) -> dict:
     db.refresh(change_log)
 
     _apply_embedding(db, surface, change_log)
-    _apply_site_summary(db, surface)
+    if allow_site_summary:
+        _apply_site_summary(db, surface)
 
     return {"status": "change_detected", "change_log_id": change_log.id}
 
@@ -539,6 +546,12 @@ def _apply_site_summary(db: Session, surface: Surface) -> None:
     handled inside site_summary_service._page_text, which falls back to a
     browser only when a plain fetch comes back short enough to look
     JavaScript-empty.
+
+    Not reached at all from a sweep (see `_run_claimed_check`). "Run check
+    now" is an interactive control, and this was a hidden multiplier on it:
+    up to `_SITE_SUMMARY_AUTO_MAX_PAGES` extra fetches per competitor per
+    click, on top of the pages the sweep set out to check. Scheduled checks
+    keep it, so the summary still refreshes on its own.
     """
 
     llm_client = get_llm_client()

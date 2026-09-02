@@ -73,12 +73,13 @@ class Settings(BaseSettings):
     # a workspace of 8 competitors at 40 pages each is 320 daily checks and a
     # sweep that takes an hour.
     #
-    # Five is the homepage plus the four highest-ranked pages (see
-    # services/surface_selection.py). Everything else discovery finds is
+    # Three is the homepage plus the two highest-ranked business pages (see
+    # services/surface_selection.py, which reads a page's role from its URL
+    # rather than trusting discovery order). Everything else discovery finds is
     # stored with is_active=false: not swept, not scheduled, not checked by
     # anything — kept only so a user can turn one on by hand rather than
     # having it silently discarded.
-    max_active_surfaces_per_competitor: int = 5
+    max_active_surfaces_per_competitor: int = 3
 
     # Bounds on a single page fetch (services/snapshot.py). Split because
     # they fail differently: a dead host trips connect, a stalled response

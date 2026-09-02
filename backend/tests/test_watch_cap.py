@@ -112,22 +112,26 @@ def test_check_all_covers_every_competitor_up_to_the_cap(client, monkeypatch):
     assert res.json()["total"] == 6
 
 
-def test_ranking_keeps_the_homepage_and_the_typed_pages():
+def test_ranking_keeps_the_homepage_and_the_business_pages():
+    """Role decides, not SurfaceType — every one of these is typed `other`,
+    which is what 363 of 365 real surfaces are. See test_page_roles.py."""
+
     surfaces = [
         Surface(id=1, competitor_id=1, surface_type=SurfaceType.other,
                 url="https://rival.example.com/collections/sale-1"),
-        Surface(id=2, competitor_id=1, surface_type=SurfaceType.pricing,
+        Surface(id=2, competitor_id=1, surface_type=SurfaceType.other,
                 url="https://rival.example.com/pricing"),
         Surface(id=3, competitor_id=1, surface_type=SurfaceType.other,
                 url="https://rival.example.com/"),
-        Surface(id=4, competitor_id=1, surface_type=SurfaceType.blog,
+        Surface(id=4, competitor_id=1, surface_type=SurfaceType.other,
                 url="https://rival.example.com/blog"),
     ]
 
     watched, unwatched = partition_by_cap(surfaces, limit=3)
 
-    assert [s.id for s in watched] == [3, 2, 4]
-    assert [s.id for s in unwatched] == [1]
+    # homepage, pricing, sale — the blog is the one left out.
+    assert [s.id for s in watched] == [3, 2, 1]
+    assert [s.id for s in unwatched] == [4]
 
 
 def test_ranking_is_total_and_stable():
@@ -337,23 +341,87 @@ def test_a_failing_surface_does_not_stop_the_rest_of_the_sweep(
         f"/workspaces/{workspace_id}/check-sweeps/{sweep_id}", headers=headers
     ).json()
 
-    # A partial failure is a finished sweep, not a failed one — three pages
-    # were checked and the fourth is recorded as failed.
+    # A partial failure is a finished sweep, not a failed one. Four surfaces
+    # exist, the cap selects three, and the one that times out is recorded as
+    # failed while the other two complete.
+    cap = settings.max_active_surfaces_per_competitor
     assert final["status"] == "success"
-    assert final["total"] == 4
-    assert final["finished"] == 4
+    assert final["total"] == cap
+    assert final["finished"] == cap
     assert final["failed_count"] == 1
+
+
+# --- no hidden fan-out behind the button ------------------------------------
+
+def _summary_recorder(monkeypatch):
+    """Counts site-summary regenerations, with an LLM client present so the
+    best-effort guard inside _apply_site_summary cannot be what stops it."""
+
+    calls = []
+    monkeypatch.setattr(check_service, "get_llm_client", lambda: object())
+    monkeypatch.setattr(
+        check_service,
+        "generate_site_summary",
+        lambda *a, **kw: calls.append(kw) or None,
+    )
+    return calls
+
+
+def test_a_sweep_fetches_only_the_pages_it_selected(client, monkeypatch):
+    """The hidden multiplier: every check that found new content regenerated
+    the site summary, and that reads up to _SITE_SUMMARY_AUTO_MAX_PAGES more
+    pages per competitor. On a click covering 7 competitors that is 56 extra
+    fetches nobody asked for."""
+
+    headers = _register(client)
+    workspace_id, _competitor_id = _workspace_with_surfaces(
+        client, headers, monkeypatch, count=6
+    )
+    calls = _summary_recorder(monkeypatch)
+
+    res = client.post(f"/workspaces/{workspace_id}/check-all", headers=headers)
+
+    assert res.json()["total"] == settings.max_active_surfaces_per_competitor
+    assert calls == [], "a sweep must not fan out into site-summary fetches"
+
+
+def test_a_single_surface_check_still_refreshes_the_site_summary(
+    client, monkeypatch, db_session
+):
+    """Only the sweep is stripped down. A check run by hand, or by the
+    scheduler, still keeps the summary fresh."""
+
+    headers = _register(client)
+    workspace_id, competitor_id = _workspace_with_surfaces(
+        client, headers, monkeypatch, count=2
+    )
+    calls = _summary_recorder(monkeypatch)
+
+    surface = (
+        db_session.query(Surface)
+        .filter(Surface.competitor_id == competitor_id)
+        .order_by(Surface.id)
+        .first()
+    )
+
+    res = client.post(
+        f"/workspaces/{workspace_id}/competitors/{competitor_id}"
+        f"/surfaces/{surface.id}/check",
+        headers=headers,
+    )
+
+    assert res.status_code == 200
+    assert len(calls) == 1
 
 
 # --- the cleanup migration's frozen copy of the ranking ---------------------
 
-def _migration_module(filename="f1b6c30d9a77_0027_tighten_active_surface_cap.py"):
+def _migration_module(filename="a83c5e6f2b91_0028_role_based_surface_selection.py"):
     """Loaded by path: a revision's filename is not an importable module name,
     and migrations are deliberately not on the import path.
 
-    Defaults to the newest cap migration — `0027`, which tightened the cap to
-    7. `0026` is still checked below for its ranking, since both revisions run
-    in sequence on a fresh database."""
+    Defaults to the newest selection migration — `0028`, which re-selects on
+    page role and lowers the cap to 3."""
 
     import importlib.util
     from pathlib import Path
@@ -370,165 +438,68 @@ def _migration_module(filename="f1b6c30d9a77_0027_tighten_active_surface_cap.py"
 
 
 class _Row:
-    """The shape the migration reads out of raw SQL — a string surface_type,
-    not the enum, which is what psycopg2 hands back for a native enum column."""
+    """The shape the migration reads out of raw SQL: plain attributes, and a
+    `name` that may be None."""
 
-    def __init__(self, id, competitor_id, surface_type, url):
+    def __init__(self, id, competitor_id, url, name=None):
         self.id = id
         self.competitor_id = competitor_id
-        self.surface_type = surface_type
         self.url = url
+        self.name = name
 
 
-def test_the_migrations_rank_the_same_pages_the_app_would():
-    """Both cap migrations carry a frozen copy of the ranking on purpose, so
-    this pins them to the app at the point they were written. If they ever
-    diverge, the rows a migration deactivated stop matching the ones the
-    running app would have chosen — and the disagreement is silent."""
+def test_the_newest_migration_ranks_the_same_pages_the_app_would():
+    """Each selection migration froze a copy of the rules as they stood when
+    it was written, so only the newest one is expected to match the app. That
+    one has to: it decides which rows an existing install ends up watching, and
+    a silent disagreement there means the migration picks pages the running
+    code never would.
 
-    migrations = [
-        _migration_module(),
-        _migration_module("d4a91c7b6e02_0026_cap_active_surfaces.py"),
+    The URLs are taken from the live database, including the ones the old
+    ranking got wrong."""
+
+    migration = _migration_module()
+
+    rows = [
+        (1, "https://rival.example.com/collections/test-coll-1", None),
+        (2, "https://rival.example.com/customer_authentication/redirect", None),
+        (3, "https://rival.example.com/", "Home"),
+        (4, "https://rival.example.com/collections/sale26", "SHOP BY CATEGORY"),
+        (5, "https://rival.example.com/pages/store-locator", None),
+        (6, "https://rival.example.com/products", None),
+        (7, "https://rival.example.com/pages/about-us", None),
+        (8, "https://rival.example.com/blog", None),
     ]
 
     surfaces = [
-        Surface(id=1, competitor_id=1, surface_type=SurfaceType.other,
-                url="https://rival.example.com/collections/sale"),
-        Surface(id=2, competitor_id=1, surface_type=SurfaceType.pricing,
-                url="https://rival.example.com/pricing"),
-        Surface(id=3, competitor_id=1, surface_type=SurfaceType.other,
-                url="https://rival.example.com/"),
-        Surface(id=4, competitor_id=1, surface_type=SurfaceType.blog,
-                url="https://rival.example.com/blog"),
-        Surface(id=5, competitor_id=1, surface_type=SurfaceType.jobs,
-                url="https://rival.example.com/careers"),
+        Surface(
+            id=row_id, competitor_id=1, surface_type=SurfaceType.other,
+            url=url, name=name,
+        )
+        for row_id, url, name in rows
     ]
-    rows = [
-        _Row(s.id, s.competitor_id, s.surface_type.value, s.url) for s in surfaces
+    migration_rows = [_Row(row_id, 1, url, name) for row_id, url, name in rows]
+
+    assert [s.id for s in sorted(surfaces, key=surface_rank)] == [
+        r.id for r in sorted(migration_rows, key=migration._rank)
     ]
+    assert migration._CAP == settings.max_active_surfaces_per_competitor
 
-    app_order = [s.id for s in sorted(surfaces, key=surface_rank)]
-
-    for migration in migrations:
-        assert [r.id for r in sorted(rows, key=migration._rank)] == app_order
-
-    # Only the newest one has to match the setting: 0026 froze the cap it
-    # applied (10), and 0027 lowered it to what the app watches today.
-    assert migrations[0]._CAP == settings.max_active_surfaces_per_competitor
+    # And the same three pages come out of both.
+    watched, _unwatched = partition_by_cap(surfaces)
+    watchable = [
+        r for r in sorted(migration_rows, key=migration._rank)
+        if migration._role(r.url, r.name) != migration._EXCLUDED
+    ]
+    assert [s.id for s in watched] == [r.id for r in watchable[:migration._CAP]]
 
 
 def test_the_migration_recognises_a_homepage_with_or_without_a_trailing_slash():
     migration = _migration_module()
 
-    assert migration._is_homepage("https://rival.example.com")
-    assert migration._is_homepage("https://rival.example.com/")
-    assert not migration._is_homepage("https://rival.example.com/collections/sale")
-
-
-# --- what a sweep actually picks up -----------------------------------------
-
-def test_a_sweep_checks_the_root_page_and_the_next_ranked_ones(
-    client, monkeypatch, db_session
-):
-    """The shape the product asks for: the primary/root page plus the
-    highest-ranked pages after it, and nothing else."""
-
-    headers = _register(client)
-    workspace = client.post(
-        "/workspaces/", json={"name": "Acme"}, headers=headers
-    ).json()
-    competitor = client.post(
-        f"/workspaces/{workspace['id']}/competitors/",
-        json={"name": "Rival"},
-        headers=headers,
-    ).json()
-
-    def _add(surface_type, url):
-        return client.post(
-            f"/workspaces/{workspace['id']}/competitors/{competitor['id']}/surfaces/",
-            json={
-                "surface_type": surface_type,
-                "url": url,
-                "check_frequency": "daily",
-            },
-            headers=headers,
-        ).json()["id"]
-
-    # Deliberately added last, so an unranked "first N by id" would miss it.
-    tail_ids = [
-        _add("other", f"https://rival.example.com/collections/c{i}")
-        for i in range(12)
-    ]
-    root_id = _add("other", "https://rival.example.com/")
-    pricing_id = _add("pricing", "https://rival.example.com/pricing")
-
-    monkeypatch.setattr(
-        check_service, "capture_clean_snapshot", lambda url: f"content of {url}"
+    assert migration._role("https://rival.example.com", None) == migration._HOMEPAGE
+    assert migration._role("https://rival.example.com/", None) == migration._HOMEPAGE
+    assert (
+        migration._role("https://rival.example.com/collections/sale", None)
+        != migration._HOMEPAGE
     )
-
-    res = client.post(f"/workspaces/{workspace['id']}/check-all", headers=headers)
-    sweep_id = res.json()["id"]
-
-    checked = {
-        run.surface_id
-        for run in db_session.query(CheckRun).filter(CheckRun.sweep_id == sweep_id).all()
-    }
-
-    assert len(checked) == settings.max_active_surfaces_per_competitor
-    assert root_id in checked
-    assert pricing_id in checked
-    # The long tail is not swept — it fills only the remaining ranked slots.
-    assert len(checked & set(tail_ids)) == (
-        settings.max_active_surfaces_per_competitor - 2
-    )
-
-
-def test_the_tail_is_left_unscheduled_entirely(client, monkeypatch, db_session):
-    """Past the cap means unwatched, not watched-less-often: nothing schedules
-    those surfaces on any cadence, and no job picks them up."""
-
-    scheduled: list[int] = []
-    unscheduled: list[int] = []
-    monkeypatch.setattr(
-        discovery_scheduling, "schedule_surface",
-        lambda surface: scheduled.append(surface.id),
-    )
-    monkeypatch.setattr(
-        discovery_scheduling, "unschedule_surface",
-        lambda surface_id: unscheduled.append(surface_id),
-    )
-
-    headers = _register(client)
-    workspace = client.post(
-        "/workspaces/", json={"name": "Acme"}, headers=headers
-    ).json()
-
-    found = [
-        (SurfaceType.other, f"Page {i}", f"https://rival.example.com/page-{i}")
-        for i in range(25)
-    ]
-    monkeypatch.setattr(discovery_scheduling, "discover_surfaces", lambda url: found)
-
-    competitor = client.post(
-        f"/workspaces/{workspace['id']}/competitors/",
-        json={"name": "Rival", "website_url": "https://rival.example.com"},
-        headers=headers,
-    ).json()
-
-    cap = settings.max_active_surfaces_per_competitor
-    inactive_ids = [
-        s.id
-        for s in db_session.query(Surface)
-        .filter(
-            Surface.competitor_id == competitor["id"],
-            Surface.is_active.is_(False),
-        )
-        .all()
-    ]
-
-    assert len(scheduled) == cap
-    assert len(inactive_ids) == 25 - cap
-    # Every unwatched surface was explicitly taken off the scheduler, and none
-    # of them was armed on any cadence.
-    assert set(unscheduled) == set(inactive_ids)
-    assert not set(scheduled) & set(inactive_ids)

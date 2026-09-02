@@ -152,18 +152,49 @@ scheduled checks, and a "Run check now" that queued 282 jobs for a worker
 running two at a time. The progress counter sat at `0/173` long enough to read
 as broken, which it effectively was.
 
-Now `max_active_surfaces_per_competitor` (5 — the root page plus the four
-highest-ranked after it) decides what is watched, applied in three places that
-must agree: discovery deactivates everything past the cap after each pass, the
-sweep takes the same top-ranked set, and migrations `0026`/`0027` applied it to
-existing data. The ranking is homepage first, then the typed pages (pricing,
-product, changelog, blog, jobs), then oldest-discovered — deterministic, so all
-three pick the same pages.
+Now `max_active_surfaces_per_competitor` (3 — the root page plus the two
+highest-ranked business pages) decides what is watched, and the choice is made
+by a page's **role**, not by the order a sitemap listed it in.
+
+The first attempt ranked by `SurfaceType`, which sounded principled and was
+not: `surface_discovery_service._classify` assigns those types from SaaS-shaped
+nav keywords, and on a retail storefront almost nothing matches — 363 of 365
+real surfaces were typed `other`. The type term was therefore constant, the
+sort collapsed to insertion order, and competitors were being checked daily on
+`/collections/test-coll-1`, `/customer_authentication/redirect` and
+`/pages/api`.
+
+`services/surface_selection.py` now reads a role from the URL at selection
+time: homepage → pricing → products/services → features/solutions →
+sale/offers → new arrivals → category → blog → company. Auth, cart, search,
+API, legal, size guides, gift cards, test/demo pages and individual products
+are excluded outright — never watched, even when a competitor has fewer pages
+than the cap. Ties inside a role go to the shallower, shorter path, so
+`/collections/sale` beats `/collections/sale-men-eastern`, and duplicates of
+the same page (a homepage stored once by `create_competitor` and again by
+discovery) collapse instead of taking two slots.
+
+Two precedence rules earn their keep. A compound name beats its parts —
+`/pages/store-locator` is a company page, not the catalogue — and the URL beats
+the nav label, because a mega-menu heading describes the menu rather than the
+page: the real `/collections/sale26` is labelled "SHOP BY CATEGORY", which read
+as a product page and outranked the actual sale page. The label is consulted
+only where the URL says nothing.
+
+Because the role is computed rather than stored, improving these rules
+re-selects existing competitors without a re-crawl. Migrations `0026`, `0027`
+and `0028` applied each successive rule set to existing rows.
 
 **Nothing is deleted, and nothing past the cap is watched on any cadence.**
 Those surfaces keep their rows with `is_active = false`: not swept, not
 scheduled daily or weekly, not touched by any job. They exist so a user can
-switch one back on by hand rather than having it silently discarded.
+switch one back on by hand.
+
+**A sweep also fetches nothing it did not select.** Every check that found new
+content used to regenerate the competitor's site summary, reading up to eight
+more pages — a hidden multiplier of ~56 extra fetches on a seven-competitor
+click. Sweeps now skip it; scheduled and single-surface checks still refresh
+the summary, so it stays fresh without an interactive click paying for it.
 
 Alongside it, three bounds so one bad page can never hold up a sweep:
 
