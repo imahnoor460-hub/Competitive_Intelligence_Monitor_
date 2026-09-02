@@ -5,7 +5,11 @@ from app.database import get_db
 from app.models.competitor import Competitor
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.category_price import CategoryPriceRequest, CategoryPriceResponse
-from app.dependencies import require_role, rate_limit
+from app.dependencies import (
+    require_role,
+    rate_limit,
+    require_writable_workspace,
+)
 from app.services.budget_service import BudgetExceededError
 from app.services.category_price_service import get_category_price_stats, NoSurfaceAvailable
 from app.services.llm.factory import get_llm_client
@@ -37,7 +41,8 @@ def get_category_price(
     request: CategoryPriceRequest,
     db: Session = Depends(get_db),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
-    _rate_limit: None = Depends(rate_limit("category-price", limit=30, window_seconds=3600.0))
+    _rate_limit: None = Depends(rate_limit("category-price", limit=30, window_seconds=3600.0)),
+    _demo: None = Depends(require_writable_workspace("run category price lookups"))
 ):
     """Best-effort — see category_price_service.get_category_price_stats.
     Returns 200 with prices_found=0 when no matching listing page can be

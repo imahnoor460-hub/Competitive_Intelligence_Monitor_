@@ -3,7 +3,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.dependencies import get_current_user
+from app.dependencies import (
+    get_current_user,
+    require_not_demo_user,
+)
 from app.services.gdpr_service import (
     export_user_data, delete_user_account, SoleOwnerWithOthersError
 )
@@ -26,7 +29,8 @@ def export_my_data(
 @router.delete("")
 def delete_my_account(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _demo: None = Depends(require_not_demo_user("delete the account"))
 ):
 
     try:

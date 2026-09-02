@@ -7,7 +7,10 @@ from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.workspace_integration import (
     WorkspaceIntegrationUpsert, WorkspaceIntegrationResponse, TestSendResponse
 )
-from app.dependencies import require_role
+from app.dependencies import (
+    require_role,
+    require_writable_workspace,
+)
 from app.services.delivery.base import DeliveryPayload
 from app.services.delivery.delivery_service import get_connector
 
@@ -42,7 +45,8 @@ def upsert_integration(
     workspace_id: int,
     payload: WorkspaceIntegrationUpsert,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("change integrations"))
 ):
 
     existing = (
@@ -77,7 +81,8 @@ def delete_integration(
     workspace_id: int,
     provider: IntegrationProvider,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("change integrations"))
 ):
 
     integration = (
@@ -105,7 +110,8 @@ def test_send(
     workspace_id: int,
     provider: IntegrationProvider,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("send test messages"))
 ):
 
     integration = (

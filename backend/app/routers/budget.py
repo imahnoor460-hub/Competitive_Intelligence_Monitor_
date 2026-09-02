@@ -4,7 +4,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.workspace_budget import WorkspaceBudgetResponse, WorkspaceBudgetUpdate
-from app.dependencies import get_current_workspace, require_role
+from app.dependencies import (
+    get_current_workspace,
+    require_role,
+    require_writable_workspace,
+)
 from app.services.budget_service import (
     get_or_create_budget, estimate_spend_usd, estimate_spend_by_purpose
 )
@@ -52,7 +56,8 @@ def update_budget(
     workspace_id: int,
     payload: WorkspaceBudgetUpdate,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("change the budget"))
 ):
 
     budget = get_or_create_budget(db, workspace_id)

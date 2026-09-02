@@ -100,6 +100,22 @@ class Settings(BaseSettings):
     # they already do for any other provider failure.
     llm_request_timeout: float = 90.0
 
+    # The public demo account. Both are secrets supplied by the environment:
+    # nothing in source, nothing reaching the browser, and no NEXT_PUBLIC_*
+    # equivalent — the frontend only ever calls POST /auth/demo-login, which
+    # takes no body. Unset (either one) means the deployment has no demo and
+    # that endpoint answers 404.
+    #
+    # The password is here only so the server can present it to the same
+    # verify_password() a normal login uses, against the bcrypt hash stored on
+    # the user row by scripts/provision_demo.py. It is never returned, never
+    # logged, and never written to the database in plaintext.
+    demo_user_email: str | None = None
+    demo_user_password: str | None = None
+    demo_user_full_name: str = "Demo User"
+    demo_workspace_name: str = "Demo Workspace"
+    demo_workspace_slug: str = "demo"
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None

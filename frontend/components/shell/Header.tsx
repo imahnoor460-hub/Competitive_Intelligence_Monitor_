@@ -26,7 +26,8 @@ function snippet(text: string | null, query: string): string {
 
 export default function Header() {
   const router = useRouter();
-  const { workspaceId, workspace, refreshPendingApprovals } = useWorkspaceContext();
+  const { workspaceId, workspace, isDemo, isReadOnly, refreshPendingApprovals } =
+    useWorkspaceContext();
   const { startCheckAll, sweep, completedCount } = useCheckJobs();
   // Derived from the sweep row rather than stamped into state when one
   // settles: the server already records when the sweep finished, and reading
@@ -218,12 +219,19 @@ export default function Header() {
       </div>
       <div className="flex h-[34px] items-center gap-2 rounded-[9px] border border-[var(--accent-border)] bg-[var(--accent-wash)] px-3">
         <span className="font-mono text-[10.5px] uppercase tracking-[.1em] text-[var(--accent)]">
-          {workspace?.role ?? "member"}
+          {isReadOnly
+            ? "demo · read-only"
+            : isDemo
+              ? `demo · ${workspace?.role ?? "member"}`
+              : workspace?.role ?? "member"}
         </span>
       </div>
       <button
         onClick={handleRunCheckNow}
-        disabled={running || !workspaceId}
+        // Hidden rather than disabled would lose the explanation; the API
+        // refuses this for a demo workspace either way.
+        disabled={running || !workspaceId || isReadOnly}
+        title={isReadOnly ? "Checks are disabled in the read-only demo" : undefined}
         className="h-[34px] rounded-[9px] bg-[var(--accent)] px-[15px] text-[12.5px] font-semibold text-[var(--accent-on)] disabled:opacity-50"
       >
         {running ? "Checking..." : "Run check now"}

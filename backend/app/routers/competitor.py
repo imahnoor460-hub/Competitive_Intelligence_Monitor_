@@ -18,7 +18,12 @@ from app.schemas.competitor import (
     CompetitorDiscoveryJobResponse,
 )
 from app.schemas.comparison import ComparisonResponse, BenchmarkComparisonResponse
-from app.dependencies import get_current_user, get_current_workspace, require_role
+from app.dependencies import (
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    require_writable_workspace,
+)
 from app.services.comparison_service import summarize_competitor
 from app.queue import JobSpec, dispatch_job
 from app.services.competitor_discovery_service import run_competitor_discovery_job
@@ -41,7 +46,8 @@ def create_competitor(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("add competitors"))
 ):
 
     existing = (
@@ -167,7 +173,8 @@ def delete_competitor(
     workspace_id: int,
     competitor_id: int,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("delete competitors"))
 ):
 
     deleted = delete_competitor_cascade(db, workspace_id, competitor_id)

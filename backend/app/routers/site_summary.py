@@ -13,6 +13,7 @@ from app.dependencies import (
     get_current_workspace,
     require_role,
     rate_limit,
+    require_writable_workspace,
 )
 from app.queue import JobSpec, dispatch_job
 from app.services.llm.factory import get_llm_client
@@ -74,7 +75,8 @@ def refresh_site_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
-    _rate_limit: None = Depends(rate_limit("site-summary-refresh", limit=10, window_seconds=3600.0))
+    _rate_limit: None = Depends(rate_limit("site-summary-refresh", limit=10, window_seconds=3600.0)),
+    _demo: None = Depends(require_writable_workspace("re-run site analysis"))
 ):
     """Queue an "Analyze site" refresh and return the job to poll.
 

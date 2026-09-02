@@ -17,6 +17,7 @@ from app.dependencies import (
     get_current_workspace,
     require_role,
     enforce_rate_limit,
+    require_writable_workspace,
 )
 from app.services.budget_service import check_budget, BudgetExceededError
 from app.services.llm.factory import get_llm_client
@@ -76,7 +77,8 @@ def propose_update(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("generate battlecard updates"))
 ):
 
     _get_owned_competitor(db, workspace_id, competitor_id)

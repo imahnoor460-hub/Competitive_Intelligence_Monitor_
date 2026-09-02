@@ -6,6 +6,7 @@ from app.models.workspace_integration import WorkspaceIntegration, IntegrationPr
 from app.models.approval_item import ApprovalItem, ApprovalItemType
 from app.models.briefing import Briefing, BriefingStatus, BriefingDigestType
 from app.models.audit_log import AuditLog
+from app.models.workspace import Workspace
 from app.services.delivery.base import DeliveryPayload
 from app.services.delivery.slack_connector import SlackConnector
 from app.services.delivery.email_connector import EmailConnector
@@ -62,6 +63,27 @@ def deliver_digest(db: Session, workspace_id: int, digest_type: BriefingDigestTy
 
 
 def _deliver_briefings(db: Session, workspace_id: int, briefings: list[Briefing]) -> bool:
+    # The demo never sends anything outward. Enforced here rather than only at
+    # the approval endpoint because this is the one function both delivery
+    # paths funnel through, and the digest path has no request behind it — the
+    # scheduler calls deliver_digest for every workspace holding approved
+    # briefings, so a router-level guard would not see it.
+    #
+    # The briefing stays `approved` and fully readable in the UI; only the
+    # send is suppressed. The audit row records that, so it is visible what
+    # would have gone out.
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace is not None and workspace.is_demo:
+        db.add(AuditLog(
+            workspace_id=workspace_id,
+            actor_user_id=None,
+            action="delivery.suppressed.demo",
+            entity_type="briefing",
+            entity_id=briefings[0].id if len(briefings) == 1 else None,
+            extra_data={"briefing_ids": [b.id for b in briefings]},
+        ))
+        return False
+
     integrations = (
         db.query(WorkspaceIntegration)
         .filter(

@@ -5,10 +5,17 @@ export interface Workspace {
   name: string;
   slug: string;
   created_at: string;
+  /** The public read-only demo. Actions are hidden for it in the UI and
+   * refused by the API — see backend dependencies.require_writable_workspace. */
+  is_demo?: boolean;
 }
 
 export interface WorkspaceWithRole extends Workspace {
   role: WorkspaceRole;
+  /** Whether *this signed-in user* may not write here — true only for the
+   * shared demo account inside the demo workspace. `is_demo` alone would also
+   * hide an admin's own controls while they curate the demo. */
+  read_only?: boolean;
 }
 
 export interface WorkspaceMember {

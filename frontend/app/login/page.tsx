@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -28,6 +29,29 @@ export default function LoginPage() {
       setError(err instanceof ApiError ? err.message : "Login failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // No credentials here, and none anywhere else in the client: the demo email
+  // and password live only in the backend's environment, so this is a bare
+  // POST with no body. Nothing to read in the bundle, in devtools, or in a
+  // NEXT_PUBLIC_* variable.
+  async function handleDemo() {
+    setError(null);
+    setDemoLoading(true);
+
+    try {
+      const data = await apiFetch("/auth/demo-login", { method: "POST" });
+      setToken(data.access_token);
+      router.push("/");
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "The demo is not available right now"
+      );
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -110,6 +134,23 @@ export default function LoginPage() {
           className="h-9 w-full rounded-lg bg-[var(--accent)] text-sm font-semibold text-[var(--accent-on)] disabled:opacity-50"
         >
           {loading ? "Logging in..." : "Log in"}
+        </button>
+
+        <div className="flex items-center gap-3">
+          <span className="h-px flex-1 bg-[var(--border-default)]" />
+          <span className="font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dim)]">
+            or
+          </span>
+          <span className="h-px flex-1 bg-[var(--border-default)]" />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleDemo}
+          disabled={demoLoading || loading}
+          className="h-9 w-full rounded-lg border border-[var(--border-default)] bg-transparent text-sm font-semibold text-[var(--text-primary)] hover:border-[var(--accent-border)] hover:text-[var(--accent)] disabled:opacity-50"
+        >
+          {demoLoading ? "Opening demo..." : "Try the demo"}
         </button>
 
         <p className="m-0 text-sm text-[var(--text-muted)]">

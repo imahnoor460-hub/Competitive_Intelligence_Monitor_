@@ -27,6 +27,7 @@ from app.dependencies import (
     get_current_workspace,
     require_role,
     rate_limit,
+    require_writable_workspace,
 )
 from app.queue import JobSpec, dispatch_jobs
 from app.services.check_service import enqueue_surface_check, execute_surface_check
@@ -54,6 +55,7 @@ def check_all(
     current_user: User = Depends(get_current_user),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
     _rate_limit: None = Depends(rate_limit("check-all", limit=6, window_seconds=3600.0)),
+    _demo: None = Depends(require_writable_workspace("run checks"))
 ):
     """Check every active surface in the workspace as one tracked sweep.
 

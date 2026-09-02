@@ -13,7 +13,14 @@ from app.schemas.workspace import (
     MemberRoleUpdate,
     MemberResponse,
 )
-from app.dependencies import get_current_user, get_current_workspace, require_role
+from app.dependencies import (
+    is_demo_account,
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    require_writable_workspace,
+    require_not_demo_user,
+)
 from app.services.slugify import unique_slug
 
 router = APIRouter(
@@ -29,7 +36,8 @@ router = APIRouter(
 def create_workspace(
     workspace: WorkspaceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _demo: None = Depends(require_not_demo_user("create workspaces"))
 ):
 
     new_workspace = Workspace(
@@ -70,8 +78,17 @@ def list_my_workspaces(
         .all()
     )
 
+    # read_only is per caller, not per workspace: the demo workspace is
+    # writable by an admin and read-only for the shared demo account, so it
+    # cannot be computed from the row alone.
+    caller_is_demo = is_demo_account(current_user)
+
     return [
-        WorkspaceWithRole(**WorkspaceResponse.model_validate(workspace).model_dump(), role=role)
+        WorkspaceWithRole(
+            **WorkspaceResponse.model_validate(workspace).model_dump(),
+            role=role,
+            read_only=bool(workspace.is_demo and caller_is_demo),
+        )
         for workspace, role in rows
     ]
 
@@ -114,7 +131,8 @@ def invite_member(
     workspace_id: int,
     invite: MemberInvite,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("change members"))
 ):
 
     user = (
@@ -175,7 +193,8 @@ def change_member_role(
     member_id: int,
     update: MemberRoleUpdate,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("change members"))
 ):
 
     member = (
@@ -217,7 +236,8 @@ def remove_member(
     workspace_id: int,
     member_id: int,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("change members"))
 ):
 
     member = (

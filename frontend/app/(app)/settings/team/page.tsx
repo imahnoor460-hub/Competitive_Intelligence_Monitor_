@@ -23,7 +23,8 @@ function initialsFor(name: string | null, email: string) {
 }
 
 export default function TeamSettingsPage() {
-  const { workspaceId, workspace, role, ready: contextReady } = useWorkspaceContext();
+  const { workspaceId, workspace, role, isReadOnly, ready: contextReady } =
+    useWorkspaceContext();
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +33,9 @@ export default function TeamSettingsPage() {
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>("editor");
   const [inviting, setInviting] = useState(false);
 
-  const isOwner = role === "owner";
+  // The demo account is an owner in its workspace; member management is still
+  // refused by the API for that session, so do not offer it.
+  const isOwner = role === "owner" && !isReadOnly;
 
   const load = useCallback(async (wsId: number) => {
     try {

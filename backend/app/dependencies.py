@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -128,5 +129,85 @@ def rate_limit(scope: str, limit: int | None = None, window_seconds: float | Non
         membership: WorkspaceMember = Depends(get_current_workspace)
     ) -> None:
         enforce_rate_limit(scope, membership.workspace_id, limit, window_seconds)
+
+    return _check
+
+
+def workspace_is_demo(db: Session, workspace_id: int) -> bool:
+    """Whether this workspace is the public demo."""
+
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    return bool(workspace is not None and workspace.is_demo)
+
+
+def is_demo_account(user: User) -> bool:
+    """Whether this is the shared account behind the "Try the demo" button."""
+
+    return bool(
+        settings.demo_user_email and user.email == settings.demo_user_email
+    )
+
+
+def workspace_is_read_only_for(db: Session, workspace_id: int, user: User) -> bool:
+    """Whether *this caller* may not write to *this workspace*.
+
+    Two conditions, and both are required: the workspace is the public demo,
+    and the caller is the shared demo account. That separation is the point.
+    Restricting everyone in the workspace meant the flag locked the owner out
+    too, so every edit to the demo's own data needed a CLI unlock and re-lock.
+
+    Still keyed off the workspace flag and account identity, never off role —
+    the demo account is an `owner` there and gets none of an owner's
+    capabilities, while an admin invited into the same workspace keeps all of
+    them.
+    """
+
+    return workspace_is_demo(db, workspace_id) and is_demo_account(user)
+
+
+def require_writable_workspace(action: str = "make changes"):
+    """Refuse a state-changing request against the demo workspace.
+
+    The one guard every mutating workspace-scoped endpoint depends on. It sits
+    here, next to `get_current_workspace`, for the same reason tenancy does: a
+    check scattered across thirty routers is a check a thirty-first router will
+    forget. Frontend buttons are hidden too, but that is presentation — the API
+    is reachable with the demo token directly, so this is the enforcement.
+
+    Refuses the demo account in the demo workspace, and nobody else: a normal
+    workspace never reaches the raise, and neither does an admin working on the
+    demo's own data. See `workspace_is_read_only_for`.
+    """
+
+    def _check(
+        workspace_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+        membership: WorkspaceMember = Depends(get_current_workspace),
+    ) -> None:
+        if workspace_is_read_only_for(db, workspace_id, current_user):
+            raise HTTPException(
+                status_code=403,
+                detail=f"This is a read-only demo workspace — you cannot {action} here",
+            )
+
+    return _check
+
+
+def require_not_demo_user(action: str = "do that"):
+    """The user-level counterpart, for the handful of endpoints that carry no
+    workspace_id — account deletion and workspace creation.
+
+    Without it the demo is trivially escapable in both directions: a visitor
+    could delete the shared demo account out from under everyone, or create a
+    fresh unrestricted workspace and run the paid pipeline inside it.
+    """
+
+    def _check(current_user: User = Depends(get_current_user)) -> None:
+        if is_demo_account(current_user):
+            raise HTTPException(
+                status_code=403,
+                detail=f"The demo account cannot {action}",
+            )
 
     return _check

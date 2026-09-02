@@ -21,6 +21,7 @@ from app.dependencies import (
     get_current_workspace,
     require_role,
     rate_limit,
+    require_writable_workspace,
 )
 from app.queue import JobSpec, dispatch_job, queue_is_configured
 from app.services.check_service import (
@@ -63,7 +64,8 @@ def create_surface(
     competitor_id: int,
     surface: SurfaceCreate,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("add pages"))
 ):
 
     _get_owned_competitor(db, workspace_id, competitor_id)
@@ -119,7 +121,8 @@ def discover_more_surfaces(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
-    _rate_limit: None = Depends(rate_limit("surface-discover"))
+    _rate_limit: None = Depends(rate_limit("surface-discover")),
+    _demo: None = Depends(require_writable_workspace("run page discovery"))
 ):
     """Queue a re-run of page discovery for a competitor already being
     tracked, so one added before discovery existed (or whose site has grown
@@ -207,7 +210,8 @@ def delete_surface(
     competitor_id: int,
     surface_id: int,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("delete pages"))
 ):
 
     _get_owned_competitor(db, workspace_id, competitor_id)
@@ -238,7 +242,8 @@ def check_surface(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
-    _rate_limit: None = Depends(rate_limit("surface-check"))
+    _rate_limit: None = Depends(rate_limit("surface-check")),
+    _demo: None = Depends(require_writable_workspace("run checks"))
 ):
     """Runs a check, or queues one.
 

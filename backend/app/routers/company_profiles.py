@@ -6,7 +6,11 @@ from app.models.competitor import Competitor
 from app.models.company_profile import CompanyProfile
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.company_profile import CompanyProfileUpsert, CompanyProfileResponse
-from app.dependencies import get_current_workspace, require_role
+from app.dependencies import (
+    get_current_workspace,
+    require_role,
+    require_writable_workspace,
+)
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/competitors/{competitor_id}/profile",
@@ -58,7 +62,8 @@ def upsert_profile(
     competitor_id: int,
     payload: CompanyProfileUpsert,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("edit company profiles"))
 ):
 
     _get_owned_competitor(db, workspace_id, competitor_id)

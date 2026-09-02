@@ -25,6 +25,12 @@ interface WorkspaceContextValue {
   workspace: WorkspaceWithRole | null;
   workspaceId: number | null;
   role: WorkspaceRole | undefined;
+  /** Whether this workspace is the public demo — used for labelling. */
+  isDemo: boolean;
+  /** Whether this user may not write here. True only for the shared demo
+   * account in the demo workspace; an admin curating the demo sees false.
+   * This is what gates actions — see the backend's per-caller `read_only`. */
+  isReadOnly: boolean;
   canEdit: boolean;
   canApprove: boolean;
   pendingApprovalsCount: number;
@@ -111,8 +117,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const workspace = workspaces.find((w) => w.id === workspaceId) ?? null;
   const role = workspace?.role;
-  const canEdit = role === "owner" || role === "editor";
-  const canApprove = role === "owner" || role === "reviewer";
+  // Gated on read_only, not is_demo: the server computes it per caller, so the
+  // demo workspace is writable for an admin curating it and read-only for the
+  // shared demo session. Role alone would offer every action and have the API
+  // refuse each one, since the demo account is an `owner` there. Folding it
+  // into the two capability booleans hides them everywhere those are already
+  // consulted. Presentation only — dependencies.require_writable_workspace is
+  // what actually enforces it.
+  const isDemo = workspace?.is_demo === true;
+  const isReadOnly = workspace?.read_only === true;
+  const canEdit = !isReadOnly && (role === "owner" || role === "editor");
+  const canApprove = !isReadOnly && (role === "owner" || role === "reviewer");
 
   return (
     <WorkspaceContext.Provider
@@ -123,6 +138,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         workspace,
         workspaceId,
         role,
+        isDemo,
+        isReadOnly,
         canEdit,
         canApprove,
         pendingApprovalsCount,

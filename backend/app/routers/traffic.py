@@ -7,7 +7,12 @@ from app.models.company_profile import CompanyProfile
 from app.models.traffic_snapshot import TrafficSnapshot
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.traffic import TrafficSnapshotResponse
-from app.dependencies import get_current_workspace, require_role, rate_limit
+from app.dependencies import (
+    get_current_workspace,
+    require_role,
+    rate_limit,
+    require_writable_workspace,
+)
 from app.services.traffic_service import fetch_and_store_traffic, TrafficProviderError
 
 router = APIRouter(
@@ -57,7 +62,8 @@ def refresh_traffic(
     competitor_id: int,
     db: Session = Depends(get_db),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
-    _rate_limit: None = Depends(rate_limit("traffic-refresh", limit=10, window_seconds=3600.0))
+    _rate_limit: None = Depends(rate_limit("traffic-refresh", limit=10, window_seconds=3600.0)),
+    _demo: None = Depends(require_writable_workspace("refresh traffic data"))
 ):
 
     _get_owned_competitor(db, workspace_id, competitor_id)

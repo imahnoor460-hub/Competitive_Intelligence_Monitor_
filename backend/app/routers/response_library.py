@@ -8,7 +8,12 @@ from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.response_library import (
     ResponseLibraryItemCreate, ResponseLibraryItemUpdate, ResponseLibraryItemResponse
 )
-from app.dependencies import get_current_user, get_current_workspace, require_role
+from app.dependencies import (
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    require_writable_workspace,
+)
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/response-library",
@@ -25,7 +30,8 @@ def create_item(
     payload: ResponseLibraryItemCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("edit the response library"))
 ):
 
     item = ResponseLibraryItem(
@@ -79,7 +85,8 @@ def update_item(
     item_id: int,
     payload: ResponseLibraryItemUpdate,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("edit the response library"))
 ):
 
     item = (
@@ -108,7 +115,8 @@ def delete_item(
     workspace_id: int,
     item_id: int,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("edit the response library"))
 ):
 
     item = (

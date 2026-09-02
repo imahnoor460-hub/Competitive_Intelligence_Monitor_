@@ -77,7 +77,8 @@ export default function CompetitorDetailPage() {
   const params = useParams();
   const router = useRouter();
   const competitorId = Number(params.id);
-  const { workspaceId, workspace, ready: contextReady, canEdit } = useWorkspaceContext();
+  const { workspaceId, workspace, ready: contextReady, canEdit, isReadOnly } =
+    useWorkspaceContext();
   // Check state lives in the provider, not here: with a queue configured a
   // check outlives this page, and a reload has to be able to pick it back up.
   const { startSurfaceCheck, surfaceCheckState, completedCount } = useCheckJobs();
@@ -204,7 +205,9 @@ export default function CompetitorDetailPage() {
   async function handleCategoryClick(category: string) {
     setSelectedCategory(category);
     setPriceError(null);
-    if (priceCache[category] || !workspaceId) return;
+    // A price lookup renders pages and calls the LLM, and the API refuses it
+    // for the demo session — show the category, skip the lookup.
+    if (priceCache[category] || !workspaceId || isReadOnly) return;
 
     setPriceLoadingFor(category);
     try {

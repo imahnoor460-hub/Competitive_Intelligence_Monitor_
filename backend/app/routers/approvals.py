@@ -6,7 +6,12 @@ from app.models.approval_item import ApprovalItem, ApprovalStatus
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.approval import DecisionRequest, ApprovalItemResponse
-from app.dependencies import get_current_user, get_current_workspace, require_role
+from app.dependencies import (
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    require_writable_workspace,
+)
 from app.services.approval_service import decide, ApprovalItemNotFound, ApprovalAlreadyDecided
 
 router = APIRouter(
@@ -44,7 +49,8 @@ def approve(
     payload: DecisionRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.reviewer))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.reviewer)),
+    _demo: None = Depends(require_writable_workspace("approve items"))
 ):
 
     try:
@@ -67,7 +73,8 @@ def reject(
     payload: DecisionRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.reviewer))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.reviewer)),
+    _demo: None = Depends(require_writable_workspace("reject items"))
 ):
 
     try:

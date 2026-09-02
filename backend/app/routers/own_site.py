@@ -5,7 +5,12 @@ from app.database import get_db
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.schemas.own_site import OwnSiteUpdate, OwnSiteResponse
-from app.dependencies import get_current_user, get_current_workspace, require_role
+from app.dependencies import (
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    require_writable_workspace,
+)
 from app.services.own_site_service import (
     get_own_site, get_own_site_surface, set_own_site, delete_own_site
 )
@@ -56,7 +61,8 @@ def set_own_site_route(
     payload: OwnSiteUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
+    _demo: None = Depends(require_writable_workspace("change the tracked site"))
 ):
 
     own_site = set_own_site(db, workspace_id, str(payload.url), current_user.id)
@@ -69,7 +75,8 @@ def set_own_site_route(
 def delete_own_site_route(
     workspace_id: int,
     db: Session = Depends(get_db),
-    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner))
+    membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner)),
+    _demo: None = Depends(require_writable_workspace("change the tracked site"))
 ):
 
     deleted = delete_own_site(db, workspace_id)
