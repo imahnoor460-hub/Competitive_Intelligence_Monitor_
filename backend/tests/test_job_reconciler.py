@@ -5,6 +5,7 @@ from app.models.briefing_job import BriefingJob, BriefingJobStatus
 from app.models.check_run import CheckRun, CheckRunStatus
 from app.models.check_sweep import CheckSweep, CheckSweepStatus
 from app.models.competitor import Competitor
+from app.models.site_summary_job import SiteSummaryJob, SiteSummaryJobStatus
 from app.models.surface import Surface, SurfaceType
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -230,6 +231,63 @@ def test_a_sweep_with_children_still_running_is_left_open(db_session):
     db_session.refresh(sweep)
     assert counts["sweeps_closed"] == 0
     assert sweep.status == CheckSweepStatus.running
+
+
+def test_abandoned_site_summary_job_is_marked_failed(db_session):
+    """The site-summary refresh is the newest queued job, and the slowest —
+    one HTTP fetch per active surface — so it is the likeliest of all of them
+    to be holding `running` when a worker is killed."""
+
+    workspace, surface = _workspace_with_surface(db_session)
+
+    job = SiteSummaryJob(
+        workspace_id=workspace.id,
+        competitor_id=surface.competitor_id,
+        status=SiteSummaryJobStatus.running,
+        created_at=_ago(_RUNNING_ABANDONED_MINUTES + 5),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    reconcile_stuck_jobs()
+
+    db_session.refresh(job)
+    assert job.status == SiteSummaryJobStatus.failed
+    assert job.finished_at is not None
+    assert "Abandoned" in job.error
+
+
+def test_undelivered_site_summary_job_is_re_enqueued(db_session, monkeypatch):
+    """Its job id has to match the one routers/site_summary.py dispatches, or
+    arq's duplicate-id guard cannot recognise a live original."""
+
+    workspace, surface = _workspace_with_surface(db_session)
+
+    job = SiteSummaryJob(
+        workspace_id=workspace.id,
+        competitor_id=surface.competitor_id,
+        status=SiteSummaryJobStatus.queued,
+        created_at=_ago(_QUEUED_REDELIVER_MINUTES + 5),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    dispatched = []
+
+    import app.services.job_reconciler as reconciler
+
+    monkeypatch.setattr(reconciler, "queue_is_configured", lambda: True)
+    monkeypatch.setattr(
+        reconciler,
+        "dispatch_jobs",
+        lambda bt, specs: dispatched.extend(specs) or [True] * len(specs),
+    )
+
+    counts = reconcile_stuck_jobs()
+
+    assert counts["redelivered"] == 1
+    assert [spec.job_id for spec in dispatched] == [f"site-summary:{job.id}"]
+    assert dispatched[0].task_name == "run_site_summary_job"
 
 
 def test_reconciler_is_a_no_op_when_nothing_is_stuck(db_session):

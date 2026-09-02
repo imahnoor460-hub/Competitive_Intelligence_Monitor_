@@ -15,7 +15,8 @@ separate worker service.
 
 A job's status, result and error live in its Postgres row (`check_runs`,
 `briefing_jobs`, `battlecard_update_jobs`, `competitor_discovery_jobs`,
-`check_sweeps`). Redis holds nothing that cannot be reconstructed.
+`site_summary_jobs`, `check_sweeps`). Redis holds nothing that cannot be
+reconstructed.
 
 Losing Redis therefore costs throughput, never a record. Rows whose message
 never arrived are re-enqueued by `services/job_reconciler.py`; rows whose

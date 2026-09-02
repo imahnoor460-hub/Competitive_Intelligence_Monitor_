@@ -37,6 +37,7 @@ from app.models.competitor_discovery_job import (
     CompetitorDiscoveryJob,
     CompetitorDiscoveryJobStatus,
 )
+from app.models.site_summary_job import SiteSummaryJob, SiteSummaryJobStatus
 from app.queue import JobSpec, dispatch_jobs, queue_is_configured
 
 __all__ = ["reconcile_stuck_jobs"]
@@ -78,6 +79,7 @@ def reconcile_stuck_jobs() -> dict[str, int]:
             (BriefingJob, BriefingJobStatus, "briefing"),
             (BattlecardUpdateJob, BattlecardUpdateJobStatus, "battlecard update"),
             (CompetitorDiscoveryJob, CompetitorDiscoveryJobStatus, "discovery"),
+            (SiteSummaryJob, SiteSummaryJobStatus, "site summary"),
             (CheckRun, CheckRunStatus, "check"),
         ):
             stamp = _timestamp_column(model)
@@ -107,6 +109,7 @@ def reconcile_stuck_jobs() -> dict[str, int]:
             from app.services.competitor_discovery_service import (
                 run_competitor_discovery_job,
             )
+            from app.services.site_summary_service import run_site_summary_job
 
             for model, status_enum, task_name, fn, prefix in (
                 (BriefingJob, BriefingJobStatus, "run_briefing_job",
@@ -116,6 +119,8 @@ def reconcile_stuck_jobs() -> dict[str, int]:
                 (CompetitorDiscoveryJob, CompetitorDiscoveryJobStatus,
                  "run_competitor_discovery_job", run_competitor_discovery_job,
                  "discovery"),
+                (SiteSummaryJob, SiteSummaryJobStatus, "run_site_summary_job",
+                 run_site_summary_job, "site-summary"),
                 (CheckRun, CheckRunStatus, "execute_surface_check",
                  execute_surface_check, "check:run"),
             ):
