@@ -71,10 +71,14 @@ class Settings(BaseSettings):
     # storefront's sitemap can offer hundreds, but every watched page is a
     # daily HTTP fetch plus, when it changes, an LLM call — on 0.2 shared CPU
     # a workspace of 8 competitors at 40 pages each is 320 daily checks and a
-    # sweep that takes an hour. Ten well-chosen pages per competitor is the
-    # useful signal; the rest are stored inactive so they can be turned on by
-    # hand rather than being lost.
-    max_active_surfaces_per_competitor: int = 10
+    # sweep that takes an hour.
+    #
+    # Five is the homepage plus the four highest-ranked pages (see
+    # services/surface_selection.py). Everything else discovery finds is
+    # stored with is_active=false: not swept, not scheduled, not checked by
+    # anything — kept only so a user can turn one on by hand rather than
+    # having it silently discarded.
+    max_active_surfaces_per_competitor: int = 5
 
     # Bounds on a single page fetch (services/snapshot.py). Split because
     # they fail differently: a dead host trips connect, a stalled response

@@ -152,16 +152,18 @@ scheduled checks, and a "Run check now" that queued 282 jobs for a worker
 running two at a time. The progress counter sat at `0/173` long enough to read
 as broken, which it effectively was.
 
-Now `max_active_surfaces_per_competitor` (10) decides what is watched, applied
-in three places that must agree: discovery deactivates everything past the cap
-after each pass, the sweep takes the same top-ranked set, and migration `0026`
-applied it once to existing data. The ranking is homepage first, then the typed
-pages (pricing, product, changelog, blog, jobs), then oldest-discovered —
-deterministic, so all three pick the same pages.
+Now `max_active_surfaces_per_competitor` (5 — the root page plus the four
+highest-ranked after it) decides what is watched, applied in three places that
+must agree: discovery deactivates everything past the cap after each pass, the
+sweep takes the same top-ranked set, and migrations `0026`/`0027` applied it to
+existing data. The ranking is homepage first, then the typed pages (pricing,
+product, changelog, blog, jobs), then oldest-discovered — deterministic, so all
+three pick the same pages.
 
-**Nothing is deleted.** Surfaces past the cap keep their rows with
-`is_active = false`; they are simply not scheduled and not swept, and can be
-switched back on by hand.
+**Nothing is deleted, and nothing past the cap is watched on any cadence.**
+Those surfaces keep their rows with `is_active = false`: not swept, not
+scheduled daily or weekly, not touched by any job. They exist so a user can
+switch one back on by hand rather than having it silently discarded.
 
 Alongside it, three bounds so one bad page can never hold up a sweep:
 
