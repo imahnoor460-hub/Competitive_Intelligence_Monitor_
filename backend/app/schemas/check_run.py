@@ -75,6 +75,7 @@ class ActiveJobsResponse(BaseModel):
     briefing_job_ids: list[int] = []
     battlecard_update_jobs: list[CompetitorJobRef] = []
     competitor_discovery_jobs: list[CompetitorJobRef] = []
+    site_summary_jobs: list[CompetitorJobRef] = []
 
 
 class LatestCheckRunsResponse(BaseModel):

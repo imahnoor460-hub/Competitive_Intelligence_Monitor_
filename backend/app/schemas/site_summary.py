@@ -11,3 +11,14 @@ class SiteSummaryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SiteSummaryJobResponse(BaseModel):
+    id: int
+    competitor_id: int
+    status: str
+    error: str | None = None
+    finished_at: datetime | None = None
+
+    class Config:
+        from_attributes = True

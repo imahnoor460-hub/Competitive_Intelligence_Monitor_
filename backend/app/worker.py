@@ -49,6 +49,12 @@ async def run_competitor_discovery_job(ctx, job_id: int) -> None:
     await asyncio.to_thread(_run, job_id)
 
 
+async def run_site_summary_job(ctx, job_id: int) -> None:
+    from app.services.site_summary_service import run_site_summary_job as _run
+
+    await asyncio.to_thread(_run, job_id)
+
+
 async def execute_surface_check(ctx, check_run_id: int) -> None:
     from app.services.check_service import execute_surface_check as _run
 
@@ -84,6 +90,7 @@ class WorkerSettings:
         run_briefing_job,
         run_battlecard_update_job,
         run_competitor_discovery_job,
+        run_site_summary_job,
         execute_surface_check,
     ]
 

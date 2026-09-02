@@ -32,6 +32,7 @@ from app.models.traffic_snapshot import TrafficSnapshot  # noqa: F401
 from app.models.competitor_site_summary import CompetitorSiteSummary  # noqa: F401
 from app.models.competitor_discovery_job import CompetitorDiscoveryJob  # noqa: F401
 from app.models.check_sweep import CheckSweep  # noqa: F401
+from app.models.site_summary_job import SiteSummaryJob  # noqa: F401
 from app.services.rate_limiter import reset_rate_limits
 from app.services.rendered_content_service import RenderedContentError
 from app.services.snapshot import FetchError
@@ -61,6 +62,7 @@ def db_session(monkeypatch):
     import app.services.competitor_discovery_service as competitor_discovery_service
     import app.services.check_service as check_service
     import app.services.job_reconciler as job_reconciler
+    import app.services.site_summary_service as site_summary_service_mod
     monkeypatch.setattr(app_database, "SessionLocal", TestingSessionLocal)
     monkeypatch.setattr(briefing_service, "SessionLocal", TestingSessionLocal)
     monkeypatch.setattr(battlecard_service, "SessionLocal", TestingSessionLocal)
@@ -74,6 +76,8 @@ def db_session(monkeypatch):
     # the first time the check-all path ran.
     monkeypatch.setattr(check_service, "SessionLocal", TestingSessionLocal)
     monkeypatch.setattr(job_reconciler, "SessionLocal", TestingSessionLocal)
+    # run_site_summary_job opens its own session, same as the other runners.
+    monkeypatch.setattr(site_summary_service_mod, "SessionLocal", TestingSessionLocal)
 
     session = TestingSessionLocal()
     try:
@@ -121,6 +125,14 @@ def client(db_session, monkeypatch):
     # run_battlecard_update_job is a queued BackgroundTask resolving its
     # client from app.services.battlecard_service, not from the router.
     monkeypatch.setattr("app.services.battlecard_service.get_llm_client", lambda: None)
+
+    # And once more for the site-summary refresh, which became a queued job in
+    # the same shape: run_site_summary_job resolves its client from
+    # app.services.site_summary_service, so a test patching only
+    # routers.site_summary.get_llm_client reaches the *real* provider inside
+    # the job. With a developer .env holding a real NVIDIA_API_KEY that is a
+    # live billable call, which is exactly what this default prevents.
+    monkeypatch.setattr("app.services.site_summary_service.get_llm_client", lambda: None)
 
     # generate_site_summary (triggered automatically after every check that
     # finds new content, and from the manual site-summary refresh) always

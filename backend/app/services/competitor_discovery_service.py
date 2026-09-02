@@ -8,7 +8,11 @@ from app.models.competitor_discovery_job import (
 )
 from app.models.surface import Surface
 from app.scheduler import schedule_surface
-from app.services.surface_discovery_service import discover_surfaces, SurfaceDiscoveryError
+from app.services.surface_discovery_service import (
+    discover_surfaces,
+    normalize_url,
+    SurfaceDiscoveryError,
+)
 
 __all__ = ["run_competitor_discovery_job"]
 
@@ -52,20 +56,38 @@ def run_competitor_discovery_job(job_id: int) -> None:
             # inserts.
             discovered = discover_surfaces(website_url)
 
+            # Skip pages this competitor already watches. A no-op on the
+            # create path, where the competitor is new and has no surfaces —
+            # but load-bearing for "Discover more pages" on an existing
+            # competitor, which would otherwise re-insert every page it
+            # already has on every run.
+            existing_urls = {
+                normalized
+                for (url,) in db.query(Surface.url).filter(
+                    Surface.competitor_id == competitor_id
+                )
+                if (normalized := normalize_url(url)) is not None
+            }
+
             # One INSERT batch and one COMMIT for every discovered page rather
             # than a commit-and-refresh per surface. Discovery caps at 40 pages
             # (_MAX_DISCOVERED) and the database is a pooled Postgres in
             # another region, so the per-surface version cost ~80-120
             # sequential round trips on a single add.
-            surfaces = [
-                Surface(
-                    competitor_id=competitor_id,
-                    surface_type=surface_type,
-                    name=name,
-                    url=url,
+            surfaces = []
+            for surface_type, name, url in discovered:
+                normalized = normalize_url(url)
+                if normalized is None or normalized in existing_urls:
+                    continue
+                existing_urls.add(normalized)
+                surfaces.append(
+                    Surface(
+                        competitor_id=competitor_id,
+                        surface_type=surface_type,
+                        name=name,
+                        url=url,
+                    )
                 )
-                for surface_type, name, url in discovered
-            ]
             db.add_all(surfaces)
             db.flush()
             new_ids = [surface.id for surface in surfaces]

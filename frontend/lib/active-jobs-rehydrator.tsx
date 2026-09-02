@@ -7,6 +7,7 @@ import { useBriefingJobs } from "@/lib/briefing-jobs-context";
 import { useBattlecardJobs } from "@/lib/battlecard-jobs-context";
 import { useCompetitorDiscoveryJobs } from "@/lib/competitor-discovery-jobs-context";
 import { useCheckJobs } from "@/lib/check-jobs-context";
+import { useSiteSummaryJobs } from "@/lib/site-summary-jobs-context";
 import { ActiveJobs } from "@/lib/types";
 
 /**
@@ -18,7 +19,7 @@ import { ActiveJobs } from "@/lib/types";
  * refetched the page. Closing a laptop lid mid-sweep had the same effect.
  *
  * Renders nothing. It is a component rather than a hook in the layout because
- * it has to sit inside all four job providers to reach their `track`
+ * it has to sit inside all five job providers to reach their `track`
  * functions, and hooks cannot be called from a component that also renders
  * those providers.
  */
@@ -28,6 +29,7 @@ export default function ActiveJobsRehydrator() {
   const { trackBattlecardUpdateJob } = useBattlecardJobs();
   const { trackDiscoveryJob } = useCompetitorDiscoveryJobs();
   const { trackCheckRun, trackSweep } = useCheckJobs();
+  const { trackSiteSummaryJob } = useSiteSummaryJobs();
 
   // One rehydration per workspace, not per render. Every `track` function is a
   // useCallback whose identity changes when its provider re-renders, so
@@ -63,6 +65,9 @@ export default function ActiveJobsRehydrator() {
       );
       active.competitor_discovery_jobs.forEach((job) =>
         trackDiscoveryJob(job.competitor_id, job.id)
+      );
+      active.site_summary_jobs.forEach((job) =>
+        trackSiteSummaryJob(job.competitor_id, job.id)
       );
     })();
 

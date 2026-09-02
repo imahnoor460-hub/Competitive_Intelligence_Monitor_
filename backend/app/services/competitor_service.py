@@ -13,6 +13,7 @@ from app.models.competitor import Competitor
 from app.models.competitor_discovery_job import CompetitorDiscoveryJob
 from app.models.competitor_site_summary import CompetitorSiteSummary
 from app.models.response_library import ResponseLibraryItem
+from app.models.site_summary_job import SiteSummaryJob
 from app.models.snapshot import Snapshot
 from app.models.surface import Surface
 from app.models.traffic_snapshot import TrafficSnapshot
@@ -123,6 +124,9 @@ def delete_competitor(db: Session, workspace_id: int, competitor_id: int) -> boo
     # every delete before it was cleaned up here.
     db.query(CompetitorDiscoveryJob).filter(
         CompetitorDiscoveryJob.competitor_id == competitor.id
+    ).delete(synchronize_session=False)
+    db.query(SiteSummaryJob).filter(
+        SiteSummaryJob.competitor_id == competitor.id
     ).delete(synchronize_session=False)
     db.query(CompanyProfile).filter(CompanyProfile.competitor_id == competitor.id).delete(
         synchronize_session=False

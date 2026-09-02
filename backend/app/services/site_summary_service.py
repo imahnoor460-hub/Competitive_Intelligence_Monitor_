@@ -7,16 +7,24 @@ from sqlalchemy.orm import Session
 
 from app.models.competitor_site_summary import CompetitorSiteSummary
 from app.models.llm_usage import TokenUsageLog, LLMUsagePurpose
+from app.models.site_summary_job import SiteSummaryJob, SiteSummaryJobStatus
 from app.models.snapshot import Snapshot
 from app.models.surface import Surface
-from app.services.budget_service import check_budget
+from app.services.budget_service import check_budget, BudgetExceededError
+from app.services.llm.factory import get_llm_client
 from app.services.llm.client import LLMClient
 from app.core.config import settings
+from app.database import SessionLocal
 from app.services.llm.prompts import SITE_SUMMARY_SYSTEM_PROMPT, site_summary_user_prompt
 from app.services.rendered_content_service import capture_rendered_text, RenderedContentError
 from app.services.snapshot_service import capture_clean_snapshot, FetchError
 
-__all__ = ["generate_site_summary", "SiteSummaryDraft", "NoSnapshotAvailable"]
+__all__ = [
+    "generate_site_summary",
+    "run_site_summary_job",
+    "SiteSummaryDraft",
+    "NoSnapshotAvailable",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -224,3 +232,58 @@ def generate_site_summary(
     db.commit()
     db.refresh(summary)
     return summary
+
+
+def run_site_summary_job(job_id: int) -> None:
+    """Runs generate_site_summary for a queued SiteSummaryJob and records the
+    outcome on it.
+
+    Runs out of request scope (arq worker, or BackgroundTasks when no queue is
+    configured), so it opens its own session rather than reusing the
+    request-scoped one — matching competitor_discovery_service.py and
+    briefing_service.py.
+    """
+
+    db = SessionLocal()
+    try:
+        job = db.query(SiteSummaryJob).filter(SiteSummaryJob.id == job_id).first()
+        if job is None:
+            return
+
+        job.status = SiteSummaryJobStatus.running
+
+        # Read into plain locals before the commit: expire_on_commit is on, so
+        # touching the job afterwards would re-SELECT and check a connection
+        # straight back out of the pool — which must not happen while the
+        # fetch loop below is running.
+        workspace_id = job.workspace_id
+        competitor_id = job.competitor_id
+        db.commit()
+
+        error: str | None = None
+        try:
+            llm_client = get_llm_client()
+            if llm_client is None:
+                raise RuntimeError("No LLM is configured for this deployment")
+
+            generate_site_summary(db, llm_client, workspace_id, competitor_id)
+            status = SiteSummaryJobStatus.success
+        except (NoSnapshotAvailable, BudgetExceededError) as exc:
+            db.rollback()
+            status = SiteSummaryJobStatus.failed
+            error = str(exc)
+        except Exception as exc:  # noqa: BLE001 — any failure must resolve the job, not hang it
+            logger.exception("Site summary job %s failed unexpectedly", job_id)
+            db.rollback()
+            status = SiteSummaryJobStatus.failed
+            # Record what actually broke; the frontend surfaces job.error
+            # verbatim, same as briefing and discovery jobs.
+            error = f"{type(exc).__name__}: {exc}"
+
+        job = db.query(SiteSummaryJob).filter(SiteSummaryJob.id == job_id).first()
+        job.status = status
+        job.error = error[:2000] if error else None
+        job.finished_at = datetime.utcnow()
+        db.commit()
+    finally:
+        db.close()

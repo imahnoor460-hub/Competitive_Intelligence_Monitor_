@@ -3,14 +3,25 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.competitor import Competitor
+from app.models.competitor_discovery_job import (
+    CompetitorDiscoveryJob,
+    CompetitorDiscoveryJobStatus,
+)
+from app.models.user import User
 from app.models.surface import Surface, SurfaceType
 from app.models.check_run import CheckRun
 from app.models.snapshot import Snapshot
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
+from app.schemas.competitor import CompetitorDiscoveryJobResponse
 from app.schemas.surface import SurfaceCreate, SurfaceResponse
 from app.schemas.check_run import CheckRunResponse
 from app.schemas.snapshot import SnapshotResponse
-from app.dependencies import get_current_workspace, require_role, rate_limit
+from app.dependencies import (
+    get_current_user,
+    get_current_workspace,
+    require_role,
+    rate_limit,
+)
 from app.queue import JobSpec, dispatch_job, queue_is_configured
 from app.services.check_service import (
     enqueue_surface_check,
@@ -18,7 +29,7 @@ from app.services.check_service import (
     run_surface_check,
     FetchError,
 )
-from app.services.surface_discovery_service import discover_surfaces, normalize_url, SurfaceDiscoveryError
+from app.services.competitor_discovery_service import run_competitor_discovery_job
 from app.scheduler import schedule_surface, unschedule_surface
 
 router = APIRouter(
@@ -97,23 +108,39 @@ def list_surfaces(
 
 @router.post(
     "/discover",
-    response_model=list[SurfaceResponse]
+    response_model=CompetitorDiscoveryJobResponse,
+    status_code=202,
 )
 def discover_more_surfaces(
     workspace_id: int,
     competitor_id: int,
+    response: Response,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     membership: WorkspaceMember = Depends(require_role(WorkspaceRole.owner, WorkspaceRole.editor)),
     _rate_limit: None = Depends(rate_limit("surface-discover"))
 ):
-    """Re-runs nav/footer page discovery against a competitor already being
-    tracked, so competitors added before this existed (or whose site has
-    grown new pages since) can pick up everything currently on the site
-    instead of only what was found at creation time. Reuses one of the
-    competitor's existing surface URLs as the seed homepage — preferring
-    the `other`-typed one, since that's what create_competitor seeds with
-    the homepage itself — then skips any discovered page that's already
-    being tracked.
+    """Queue a re-run of page discovery for a competitor already being
+    tracked, so one added before discovery existed (or whose site has grown
+    new pages since) picks up everything currently published.
+
+    Seeds from one of the competitor's existing surface URLs — preferring the
+    `other`-typed one, since that is what create_competitor stores the
+    homepage as. Pages already tracked are skipped by the job itself (see
+    competitor_discovery_service), which is the same dedupe the create path
+    gets for free by having no surfaces yet.
+
+    Returns the job to poll rather than the created surfaces. Discovery walks
+    a site's sitemaps over plain HTTP — measured around 10s on a real
+    storefront and longer on a small shared-CPU container — which is more
+    than a request should hold open. It reuses CompetitorDiscoveryJob and
+    therefore the poll endpoint and frontend poller that already exist for
+    the create path.
+
+    An already-running discovery for this competitor is returned as-is rather
+    than starting a second one; that case answers 200, since nothing new was
+    created.
     """
 
     _get_owned_competitor(db, workspace_id, competitor_id)
@@ -129,47 +156,49 @@ def discover_more_surfaces(
             detail="Add at least one page first so its site can be identified"
         )
 
-    seed = next((s for s in existing_surfaces if s.surface_type == SurfaceType.other), existing_surfaces[0])
-    seed_url = seed.url
-
-    # Built before the release below rather than after it: expire_on_commit is
-    # on, so re-reading .url off these instances post-commit would re-SELECT
-    # every one of them. Nothing here depends on the discovery result.
-    existing_urls = {
-        normalized
-        for s in existing_surfaces
-        if (normalized := normalize_url(s.url)) is not None
-    }
-
-    # discover_surfaces launches a browser with a 60s navigation timeout —
-    # hand this request session's pooled connection back before it.
-    db.commit()
-
-    try:
-        discovered = discover_surfaces(seed_url)
-    except SurfaceDiscoveryError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    created: list[Surface] = []
-    for surface_type, name, url in discovered:
-        normalized = normalize_url(url)
-        if normalized is None or normalized in existing_urls:
-            continue
-        existing_urls.add(normalized)
-
-        new_surface = Surface(
-            competitor_id=competitor_id,
-            surface_type=surface_type,
-            name=name,
-            url=url,
+    in_flight = (
+        db.query(CompetitorDiscoveryJob)
+        .filter(
+            CompetitorDiscoveryJob.competitor_id == competitor_id,
+            CompetitorDiscoveryJob.status.in_(
+                [CompetitorDiscoveryJobStatus.queued, CompetitorDiscoveryJobStatus.running]
+            ),
         )
-        db.add(new_surface)
-        db.commit()
-        db.refresh(new_surface)
-        schedule_surface(new_surface)
-        created.append(new_surface)
+        .order_by(CompetitorDiscoveryJob.id.desc())
+        .first()
+    )
+    if in_flight is not None:
+        response.status_code = 200
+        return in_flight
 
-    return created
+    seed = next(
+        (s for s in existing_surfaces if s.surface_type == SurfaceType.other),
+        existing_surfaces[0],
+    )
+
+    job = CompetitorDiscoveryJob(
+        workspace_id=workspace_id,
+        competitor_id=competitor_id,
+        website_url=seed.url,
+        status=CompetitorDiscoveryJobStatus.queued,
+        created_by_user_id=current_user.id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # See app/queue.py — arq when REDIS_URL is set, BackgroundTasks otherwise.
+    dispatch_job(
+        background_tasks,
+        JobSpec(
+            task_name="run_competitor_discovery_job",
+            fn=run_competitor_discovery_job,
+            args=(job.id,),
+            job_id=f"discovery:{job.id}",
+        ),
+    )
+
+    return job
 
 
 @router.delete("/{surface_id}")

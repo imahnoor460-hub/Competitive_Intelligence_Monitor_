@@ -10,6 +10,7 @@ from app.models.competitor import Competitor
 from app.models.competitor_discovery_job import CompetitorDiscoveryJob
 from app.models.competitor_site_summary import CompetitorSiteSummary
 from app.models.response_library import ResponseLibraryItem
+from app.models.site_summary_job import SiteSummaryJob
 from app.models.snapshot import Snapshot
 from app.models.surface import Surface, SurfaceType
 from app.models.traffic_snapshot import TrafficSnapshot
@@ -215,6 +216,9 @@ def test_delete_competitor_cleans_up_every_dependent_table(client, monkeypatch, 
     assert db_session.query(BattlecardUpdateJob).filter(
         BattlecardUpdateJob.competitor_id == competitor_id
     ).count() == 0
+    assert db_session.query(SiteSummaryJob).filter(
+        SiteSummaryJob.competitor_id == competitor_id
+    ).count() == 0
 
     # The manually-authored response-library item survives, just orphaned.
     survivors = client.get(f"/workspaces/{workspace_id}/response-library/", headers=headers).json()
@@ -344,6 +348,12 @@ def test_delete_competitor_clears_job_tables(client, monkeypatch, db_session):
             battlecard_update_id=update.id,
         )
     )
+    # site_summary_jobs is the third table with an FK to competitors.id,
+    # added when the refresh route became a queued job. Same trap as the
+    # other two: harmless on SQLite, a 500 on Postgres.
+    db_session.add(
+        SiteSummaryJob(workspace_id=workspace_id, competitor_id=competitor_id)
+    )
     db_session.commit()
 
     res = client.delete(f"/workspaces/{workspace_id}/competitors/{competitor_id}", headers=headers)
@@ -357,5 +367,8 @@ def test_delete_competitor_clears_job_tables(client, monkeypatch, db_session):
     ).count() == 0
     assert db_session.query(BattlecardUpdateJob).filter(
         BattlecardUpdateJob.competitor_id == competitor_id
+    ).count() == 0
+    assert db_session.query(SiteSummaryJob).filter(
+        SiteSummaryJob.competitor_id == competitor_id
     ).count() == 0
     assert db_session.query(BattlecardUpdate).count() == 0

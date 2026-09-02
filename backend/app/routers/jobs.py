@@ -13,6 +13,7 @@ from app.models.competitor_discovery_job import (
     CompetitorDiscoveryJob,
     CompetitorDiscoveryJobStatus,
 )
+from app.models.site_summary_job import SiteSummaryJob, SiteSummaryJobStatus
 from app.models.surface import Surface
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
@@ -237,4 +238,5 @@ def list_active_jobs(
         competitor_discovery_jobs=_refs(
             CompetitorDiscoveryJob, CompetitorDiscoveryJobStatus
         ),
+        site_summary_jobs=_refs(SiteSummaryJob, SiteSummaryJobStatus),
     )

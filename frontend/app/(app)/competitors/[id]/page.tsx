@@ -6,10 +6,13 @@ import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { useCheckJobs } from "@/lib/check-jobs-context";
+import { useCompetitorDiscoveryJobs } from "@/lib/competitor-discovery-jobs-context";
+import { useSiteSummaryJobs } from "@/lib/site-summary-jobs-context";
 import {
   CategoryPriceStats,
   ChangeLog,
   Competitor,
+  CompetitorDiscoveryJob,
   ComparisonResponse,
   SiteSummary,
   Surface,
@@ -78,6 +81,15 @@ export default function CompetitorDetailPage() {
   // Check state lives in the provider, not here: with a queue configured a
   // check outlives this page, and a reload has to be able to pick it back up.
   const { startSurfaceCheck, surfaceCheckState, completedCount } = useCheckJobs();
+  const {
+    startSiteSummaryJob,
+    runningFor: summaryRunningFor,
+    completedCount: summaryCompletedCount,
+  } = useSiteSummaryJobs();
+  const {
+    trackDiscoveryJob,
+    completedCount: discoveryCompletedCount,
+  } = useCompetitorDiscoveryJobs();
 
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -87,7 +99,9 @@ export default function CompetitorDetailPage() {
   const [otherCompetitors, setOtherCompetitors] = useState<Competitor[]>([]);
   const [compareTo, setCompareTo] = useState<string>("");
   const [siteSummary, setSiteSummary] = useState<SiteSummary | null>(null);
-  const [refreshingSummary, setRefreshingSummary] = useState(false);
+  // Owned by the provider rather than local state: the job outlives this
+  // page, so a reload has to be able to re-attach and still show a spinner.
+  const refreshingSummary = summaryRunningFor.includes(Number(competitorId));
   const [siteSummaryOpen, setSiteSummaryOpen] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -154,6 +168,23 @@ export default function CompetitorDetailPage() {
     })();
   }, [completedCount, workspaceId, load]);
 
+  // Same for the two jobs this page starts. Both finish out of band — in a
+  // worker, or in a background task after the response — so the page has to
+  // refetch on settle rather than on the click that started them.
+  useEffect(() => {
+    if (summaryCompletedCount === 0 || !workspaceId) return;
+    void (async () => {
+      await load(workspaceId);
+    })();
+  }, [summaryCompletedCount, workspaceId, load]);
+
+  useEffect(() => {
+    if (discoveryCompletedCount === 0 || !workspaceId) return;
+    void (async () => {
+      await load(workspaceId);
+    })();
+  }, [discoveryCompletedCount, workspaceId, load]);
+
   async function handleCompareToChange(value: string) {
     setCompareTo(value);
     if (!workspaceId) return;
@@ -163,19 +194,11 @@ export default function CompetitorDetailPage() {
 
   async function handleRefreshSiteSummary() {
     if (!workspaceId) return;
-    setRefreshingSummary(true);
     setSummaryError(null);
-    try {
-      const result = await apiFetch(
-        `/workspaces/${workspaceId}/competitors/${competitorId}/site-summary/refresh`,
-        { method: "POST" }
-      );
-      setSiteSummary(result);
-    } catch (err) {
-      setSummaryError(err instanceof ApiError ? err.message : "Failed to refresh site summary");
-    } finally {
-      setRefreshingSummary(false);
-    }
+    // Queued now — the refresh reads one page per active surface, which is
+    // too long to hold a request open. The provider polls the job and this
+    // page refetches when summaryCompletedCount bumps.
+    await startSiteSummaryJob(Number(competitorId));
   }
 
   async function handleCategoryClick(category: string) {
@@ -203,16 +226,15 @@ export default function CompetitorDetailPage() {
     setDiscoverMessage(null);
     setError(null);
     try {
-      const found: Surface[] = await apiFetch(
+      // Queued now, and it reuses CompetitorDiscoveryJob — so the poller and
+      // the "found N pages" toast that already exist for the create path
+      // cover this too. 202 for a new job, 200 when one was already running.
+      const job: CompetitorDiscoveryJob = await apiFetch(
         `/workspaces/${workspaceId}/competitors/${competitorId}/surfaces/discover`,
         { method: "POST" }
       );
-      setDiscoverMessage(
-        found.length === 0
-          ? "No new pages found."
-          : `Found ${found.length} new page${found.length === 1 ? "" : "s"}.`
-      );
-      await load(workspaceId);
+      trackDiscoveryJob(Number(competitorId), job.id);
+      setDiscoverMessage("Scanning the site — pages will appear here as they are found.");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to discover pages");
     } finally {

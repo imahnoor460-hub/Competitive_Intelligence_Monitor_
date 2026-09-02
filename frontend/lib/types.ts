@@ -73,6 +73,18 @@ export interface CompetitorDiscoveryJob {
   finished_at: string | null;
 }
 
+export type SiteSummaryJobStatus = "queued" | "running" | "success" | "failed";
+
+/** The manual "Analyze site" refresh, which is queued rather than inline —
+ * it reads one page per active surface, and discovery allows up to 40. */
+export interface SiteSummaryJob {
+  id: number;
+  competitor_id: number;
+  status: SiteSummaryJobStatus;
+  error: string | null;
+  finished_at: string | null;
+}
+
 export type ChangeItemType = "price_drop" | "price_increase" | "new" | "removed" | "policy" | "other";
 
 export interface ChangeItem {
@@ -370,4 +382,5 @@ export interface ActiveJobs {
   briefing_job_ids: number[];
   battlecard_update_jobs: CompetitorJobRef[];
   competitor_discovery_jobs: CompetitorJobRef[];
+  site_summary_jobs: CompetitorJobRef[];
 }
