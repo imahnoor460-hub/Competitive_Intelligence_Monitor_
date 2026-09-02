@@ -190,12 +190,13 @@ def test_surfaces_are_inserted_in_one_batch(client, db_session, monkeypatch):
     surface_selects = [s for s in statements if "FROM surfaces" in s]
 
     # The old loop did commit-and-refresh per surface, so 40 pages meant 40
-    # round-trip SELECTs reloading one row each. Two whole-batch SELECTs are
-    # what this locks in — one reading the competitor's existing URLs to skip
-    # pages already tracked, one reloading the inserted rows — and that holds
+    # round-trip SELECTs reloading one row each. Three whole-batch SELECTs are
+    # what this locks in — the competitor's existing URLs (to skip pages
+    # already tracked), its whole surface set (to apply the watch cap), and a
+    # reload of the rows left active (to schedule them) — and that count holds
     # on every backend regardless of how many pages were discovered.
-    assert len(surface_selects) == 2, (
-        f"expected two whole-batch SELECTs, got {len(surface_selects)}"
+    assert len(surface_selects) == 3, (
+        f"expected three whole-batch SELECTs, got {len(surface_selects)}"
     )
 
     # Every insert goes through a single add_all()/flush() rather than a

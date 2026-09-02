@@ -30,6 +30,7 @@ from app.dependencies import (
 )
 from app.queue import JobSpec, dispatch_jobs
 from app.services.check_service import enqueue_surface_check, execute_surface_check
+from app.services.surface_selection import partition_by_cap
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}",
@@ -64,6 +65,13 @@ def check_all(
     Returns immediately with a sweep row to poll. An already-running sweep is
     returned as-is rather than starting a second one, so two tabs — or a
     double click — cannot double-check every surface in the workspace.
+
+    Bounded per competitor by `max_active_surfaces_per_competitor`. "Every
+    active surface" was true to the name and wrong in practice: one workspace
+    had accumulated 282 of them across eight competitors, so a click queued
+    282 checks that a two-slot worker chewed through for the better part of an
+    hour. The cap is applied here as well as at discovery time because rows
+    predating the cap — or activated by hand — would otherwise still be swept.
     """
 
     in_flight = (
@@ -79,7 +87,7 @@ def check_all(
         response.status_code = 200
         return in_flight
 
-    surfaces = (
+    active_surfaces = (
         db.query(Surface)
         .join(Competitor, Competitor.id == Surface.competitor_id)
         .filter(
@@ -88,6 +96,19 @@ def check_all(
         )
         .all()
     )
+
+    # Same ranking the scheduler and the cleanup migration use, so a sweep
+    # checks the pages a competitor is actually being watched on rather than
+    # an arbitrary prefix of them.
+    by_competitor: dict[int, list[Surface]] = {}
+    for surface in active_surfaces:
+        by_competitor.setdefault(surface.competitor_id, []).append(surface)
+
+    surfaces = [
+        surface
+        for competitor_surfaces in by_competitor.values()
+        for surface in partition_by_cap(competitor_surfaces)[0]
+    ]
 
     sweep = CheckSweep(
         workspace_id=workspace_id,

@@ -12,6 +12,7 @@ from app.models.workspace import Workspace
 from app.services.job_reconciler import (
     _QUEUED_REDELIVER_MINUTES,
     _RUNNING_ABANDONED_MINUTES,
+    _SWEEP_MAX_MINUTES,
     _SWEEP_STUCK_MINUTES,
     reconcile_stuck_jobs,
 )
@@ -288,6 +289,86 @@ def test_undelivered_site_summary_job_is_re_enqueued(db_session, monkeypatch):
     assert counts["redelivered"] == 1
     assert [spec.job_id for spec in dispatched] == [f"site-summary:{job.id}"]
     assert dispatched[0].task_name == "run_site_summary_job"
+
+
+def test_a_sweep_stuck_behind_an_undeliverable_check_is_closed_at_the_boundary(
+    db_session,
+):
+    """The hole that left the UI polling forever: a child whose queue message
+    was lost stays `queued`, so it is never "abandoned" and never resolves,
+    and the all-children-finished close can never fire. Nothing closed the
+    sweep. Now the boundary does, failing what is still outstanding."""
+
+    _workspace, surface = _workspace_with_surface(db_session)
+
+    sweep = CheckSweep(
+        workspace_id=_workspace.id,
+        status=CheckSweepStatus.running,
+        total=2,
+        finished=1,
+        failed_count=0,
+        created_at=_ago(_SWEEP_MAX_MINUTES + 5),
+    )
+    db_session.add(sweep)
+    db_session.flush()
+
+    done = CheckRun(
+        surface_id=surface.id, status=CheckRunStatus.success, sweep_id=sweep.id
+    )
+    orphaned = CheckRun(
+        surface_id=surface.id,
+        status=CheckRunStatus.queued,
+        sweep_id=sweep.id,
+        started_at=_ago(_SWEEP_MAX_MINUTES + 5),
+    )
+    db_session.add_all([done, orphaned])
+    db_session.commit()
+
+    counts = reconcile_stuck_jobs()
+
+    db_session.refresh(sweep)
+    db_session.refresh(orphaned)
+    assert counts["sweeps_closed"] == 1
+    assert sweep.status == CheckSweepStatus.success
+    assert sweep.finished == sweep.total
+    assert sweep.failed_count == 1
+    assert orphaned.status == CheckRunStatus.failed
+    assert "sweep was closed" in orphaned.error
+
+
+def test_a_sweep_short_of_the_boundary_is_left_running(db_session):
+    """The boundary sits well past the ordinary close, so a sweep that is
+    merely slow — a two-slot worker chewing through ten pages — is never cut
+    short by it."""
+
+    _workspace, surface = _workspace_with_surface(db_session)
+
+    sweep = CheckSweep(
+        workspace_id=_workspace.id,
+        status=CheckSweepStatus.running,
+        total=2,
+        finished=0,
+        failed_count=0,
+        created_at=_ago(_SWEEP_MAX_MINUTES - 10),
+    )
+    db_session.add(sweep)
+    db_session.flush()
+
+    db_session.add(
+        CheckRun(
+            surface_id=surface.id,
+            status=CheckRunStatus.running,
+            sweep_id=sweep.id,
+            started_at=datetime.utcnow(),
+        )
+    )
+    db_session.commit()
+
+    counts = reconcile_stuck_jobs()
+
+    db_session.refresh(sweep)
+    assert counts["sweeps_closed"] == 0
+    assert sweep.status == CheckSweepStatus.running
 
 
 def test_reconciler_is_a_no_op_when_nothing_is_stuck(db_session):

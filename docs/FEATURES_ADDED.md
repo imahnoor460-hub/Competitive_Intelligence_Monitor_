@@ -142,6 +142,43 @@ link cleared rather than being deleted.
   showing until a manual reload. Now refetches automatically when the tab/window
   regains focus.
 
+
+## 7. What gets watched: the per-competitor cap
+
+Discovery finds up to 40 pages per pass and a storefront's sitemap offers
+hundreds. Nothing limited how many of those were *watched*, so one workspace
+had accumulated 282 active surfaces across eight competitors — 282 daily
+scheduled checks, and a "Run check now" that queued 282 jobs for a worker
+running two at a time. The progress counter sat at `0/173` long enough to read
+as broken, which it effectively was.
+
+Now `max_active_surfaces_per_competitor` (10) decides what is watched, applied
+in three places that must agree: discovery deactivates everything past the cap
+after each pass, the sweep takes the same top-ranked set, and migration `0026`
+applied it once to existing data. The ranking is homepage first, then the typed
+pages (pricing, product, changelog, blog, jobs), then oldest-discovered —
+deterministic, so all three pick the same pages.
+
+**Nothing is deleted.** Surfaces past the cap keep their rows with
+`is_active = false`; they are simply not scheduled and not swept, and can be
+switched back on by hand.
+
+Alongside it, three bounds so one bad page can never hold up a sweep:
+
+- **A wall-clock ceiling on every fetch.** `requests`' `timeout` is per socket
+  operation, so a server sending one byte inside each read window never trips
+  it — the exact shape of hang that left a check `running` until the 15-minute
+  stale reclaim. `http_total_timeout` (25s) is checked between chunks, and
+  `http_max_bytes` (3MB) stops an oversized body being read into a 512MB
+  container. Both raise `FetchError`, which is already recorded as a failed
+  check, so the surface is skipped and the sweep continues.
+- **A timeout on LLM calls** (90s, against the SDK's 600s default), so a
+  provider that goes quiet cannot hold a worker slot for ten minutes.
+- **A hard sweep boundary** in the reconciler — see `QUEUE_AND_WORKER.md`.
+
+The UI dropped the `finished/total` counter with this: the button reads
+"Checking..." while a sweep is in flight and reports the result when it lands.
+
 ## Known operational note
 
 This is a Windows dev setup; killing a `uvicorn --reload` process with

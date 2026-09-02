@@ -7,12 +7,13 @@ from app.models.competitor_discovery_job import (
     CompetitorDiscoveryJobStatus,
 )
 from app.models.surface import Surface
-from app.scheduler import schedule_surface
+from app.scheduler import schedule_surface, unschedule_surface
 from app.services.surface_discovery_service import (
     discover_surfaces,
     normalize_url,
     SurfaceDiscoveryError,
 )
+from app.services.surface_selection import partition_by_cap
 
 __all__ = ["run_competitor_discovery_job"]
 
@@ -93,13 +94,42 @@ def run_competitor_discovery_job(job_id: int) -> None:
             new_ids = [surface.id for surface in surfaces]
             db.commit()
 
+            # Everything found is stored; only the top-ranked
+            # `max_active_surfaces_per_competitor` are watched. Applied over
+            # the competitor's *whole* set rather than just the new rows, so
+            # "Discover more pages" cannot push the total past the cap one
+            # pass at a time, and so a better page found later can displace a
+            # weaker one already being watched.
+            #
             # Re-read in one query instead of letting each committed instance
             # lazily reload its own expired columns, which would be one SELECT
             # per surface and would put back the round trips just removed.
             # Scheduling deliberately happens after the commit, so a failed
             # insert can't leave jobs armed for surfaces that don't exist.
-            for surface in db.query(Surface).filter(Surface.id.in_(new_ids)).all():
+            all_surfaces = (
+                db.query(Surface).filter(Surface.competitor_id == competitor_id).all()
+            )
+            watched, unwatched = partition_by_cap(all_surfaces)
+
+            # Ids read into plain lists before the commit: expire_on_commit
+            # would otherwise make every attribute access below its own
+            # SELECT, which is the per-surface round trip the batch insert
+            # above exists to avoid.
+            watched_ids = [surface.id for surface in watched]
+            unwatched_ids = [surface.id for surface in unwatched]
+
+            for ids, active in ((watched_ids, True), (unwatched_ids, False)):
+                if not ids:
+                    continue
+                db.query(Surface).filter(
+                    Surface.id.in_(ids), Surface.is_active.is_(not active)
+                ).update({Surface.is_active: active}, synchronize_session=False)
+            db.commit()
+
+            for surface in db.query(Surface).filter(Surface.id.in_(watched_ids)).all():
                 schedule_surface(surface)
+            for surface_id in unwatched_ids:
+                unschedule_surface(surface_id)
 
             surfaces_discovered = len(new_ids)
             status = CompetitorDiscoveryJobStatus.success

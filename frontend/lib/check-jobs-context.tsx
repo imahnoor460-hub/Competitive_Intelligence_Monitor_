@@ -178,10 +178,17 @@ export function CheckJobsProvider({ children }: { children: ReactNode }) {
       // the button had not worked.
       setSweep(initial);
 
+      // No progress callback. The sweep row still carries finished/total and
+      // the reconciler still needs them, but the button says "Checking..."
+      // either way: a counter inching from 0/173 reads as a stall, and the
+      // number it counts to is an implementation detail of how many pages are
+      // watched. The button reflects one bit — in flight or not — and the
+      // result arrives as a toast.
       sweepRegistry.start<CheckSweep>(
         initial.id,
         () => apiFetch(`/workspaces/${workspaceId}/check-sweeps/${initial.id}`),
         (finished) => {
+          setSweep(finished);
           setCompletedCount((n) => n + 1);
 
           if (finished.failed_count === 0) {
@@ -202,10 +209,7 @@ export function CheckJobsProvider({ children }: { children: ReactNode }) {
               } pages — ${finished.failed_count} failed`,
             });
           }
-        },
-        // Progress tick by tick, so the header counts up rather than sitting
-        // on "Checking…" until the whole sweep lands.
-        (progress) => setSweep(progress)
+        }
       );
     },
     [workspaceId, sweepRegistry, push]

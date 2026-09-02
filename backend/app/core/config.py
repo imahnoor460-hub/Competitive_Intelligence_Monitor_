@@ -66,6 +66,35 @@ class Settings(BaseSettings):
     # is minutes of browser work by design (see site_summary_service).
     arq_job_timeout: int = 900
 
+    # How many pages of one competitor are actually watched: scheduled daily,
+    # and swept by "Run check now". Discovery finds up to 40 per pass and a
+    # storefront's sitemap can offer hundreds, but every watched page is a
+    # daily HTTP fetch plus, when it changes, an LLM call — on 0.2 shared CPU
+    # a workspace of 8 competitors at 40 pages each is 320 daily checks and a
+    # sweep that takes an hour. Ten well-chosen pages per competitor is the
+    # useful signal; the rest are stored inactive so they can be turned on by
+    # hand rather than being lost.
+    max_active_surfaces_per_competitor: int = 10
+
+    # Bounds on a single page fetch (services/snapshot.py). Split because
+    # they fail differently: a dead host trips connect, a stalled response
+    # trips read, and a server dribbling one byte at a time trips neither —
+    # requests' timeout is per socket operation, not per request, so a slow
+    # drip resets it forever. http_total_timeout is the wall-clock ceiling
+    # that makes a fetch genuinely bounded, and http_max_bytes stops a
+    # multi-gigabyte body from being read into a 512MB container.
+    http_connect_timeout: float = 5.0
+    http_read_timeout: float = 10.0
+    http_total_timeout: float = 25.0
+    http_max_bytes: int = 3_000_000
+
+    # The OpenAI SDK defaults to a 600-second timeout, which is longer than
+    # any job here should live: a check that hangs on materiality scoring
+    # holds a worker slot (of two) for ten minutes and looks stuck to the
+    # user. Best-effort LLM steps catch the timeout and degrade, exactly as
+    # they already do for any other provider failure.
+    llm_request_timeout: float = 90.0
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None

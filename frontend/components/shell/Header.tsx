@@ -226,9 +226,7 @@ export default function Header() {
         disabled={running || !workspaceId}
         className="h-[34px] rounded-[9px] bg-[var(--accent)] px-[15px] text-[12.5px] font-semibold text-[var(--accent-on)] disabled:opacity-50"
       >
-        {running
-          ? `Checking ${sweep.finished}/${sweep.total}...`
-          : "Run check now"}
+        {running ? "Checking..." : "Run check now"}
       </button>
     </header>
   );

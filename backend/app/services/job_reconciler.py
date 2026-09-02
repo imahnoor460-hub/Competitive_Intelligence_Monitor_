@@ -58,6 +58,14 @@ _RUNNING_ABANDONED_MINUTES = 30
 # child finishing at once can race the counter update. Rare, cheap to fix.
 _SWEEP_STUCK_MINUTES = 45
 
+# The hard boundary: a sweep this old is closed whether or not its children
+# resolved, failing the ones still outstanding. Without it a sweep with a
+# single permanently-queued child — a message Redis lost that keeps being
+# re-enqueued into a queue nothing is consuming — stays `running` forever, and
+# the frontend polls it forever. Comfortably past _SWEEP_STUCK_MINUTES so the
+# ordinary "children all finished" close always gets there first.
+_SWEEP_MAX_MINUTES = 90
+
 
 def _timestamp_column(model):
     """Jobs use created_at; check runs use started_at."""
@@ -146,6 +154,55 @@ def reconcile_stuck_jobs() -> dict[str, int]:
             if specs:
                 results = dispatch_jobs(None, specs)
                 counts["redelivered"] = sum(1 for created in results if created)
+
+        # --- sweeps past the hard boundary ---------------------------------
+        expired_sweeps = (
+            db.query(CheckSweep)
+            .filter(
+                CheckSweep.status.in_(
+                    [CheckSweepStatus.queued, CheckSweepStatus.running]
+                ),
+                CheckSweep.created_at < now - timedelta(minutes=_SWEEP_MAX_MINUTES),
+            )
+            .all()
+        )
+        for sweep in expired_sweeps:
+            outstanding = (
+                db.query(CheckRun)
+                .filter(
+                    CheckRun.sweep_id == sweep.id,
+                    CheckRun.status.in_(
+                        [CheckRunStatus.queued, CheckRunStatus.running]
+                    ),
+                )
+                .all()
+            )
+            for run in outstanding:
+                run.status = CheckRunStatus.failed
+                run.error = (
+                    f"Abandoned: its sweep was closed after "
+                    f"{_SWEEP_MAX_MINUTES} minutes"
+                )
+                run.finished_at = now
+                counts["failed"] += 1
+
+            # Counters set rather than incremented: the whole point of this
+            # branch is that the per-child bookkeeping did not happen, so
+            # trusting it here would leave the sweep short of total again.
+            sweep.failed_count += len(outstanding)
+            sweep.finished = sweep.total
+            sweep.status = (
+                CheckSweepStatus.failed
+                if sweep.total > 0 and sweep.failed_count >= sweep.total
+                else CheckSweepStatus.success
+            )
+            sweep.finished_at = now
+            counts["sweeps_closed"] += 1
+            logger.warning(
+                "Closed check sweep %s at the %s-minute boundary with %s "
+                "unresolved check(s)", sweep.id, _SWEEP_MAX_MINUTES, len(outstanding),
+            )
+        db.commit()
 
         # --- sweeps whose children all resolved but never closed -----------
         stuck_sweeps = (

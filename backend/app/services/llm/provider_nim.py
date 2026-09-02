@@ -3,6 +3,7 @@ import re
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
+from app.core.config import settings
 from app.services.llm.client import LLMCallResult, EmbedResult, LLMOutputError
 
 _MAX_ATTEMPTS = 2
@@ -27,7 +28,17 @@ class NIMProvider:
     """
 
     def __init__(self, api_key: str, base_url: str, chat_model: str, embed_model: str):
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        # An explicit timeout, because the SDK's default is 600s. Every call
+        # here happens inside a background job that holds one of two worker
+        # slots, so a provider that accepts a request and then goes quiet
+        # would stall a check for ten minutes and read to the user as a job
+        # that is simply stuck. Callers already treat any provider failure as
+        # best-effort, so a timeout degrades the same way a 500 does.
+        self._client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=settings.llm_request_timeout,
+        )
         self._chat_model = chat_model
         self._embed_model = embed_model
 

@@ -118,6 +118,12 @@ reconciler living in the worker would be asleep exactly when it is needed.
 | Row `queued`, message never delivered | 10 min | Re-enqueue (runners are idempotent; arq refuses the id if the original is alive) |
 | Row `running`, worker died holding it | 30 min | Mark failed — comfortably beyond `ARQ_JOB_TIMEOUT` so a merely slow job is never killed |
 | Sweep open, every child resolved | 45 min | Close it |
+| Sweep open, children still unresolved | 90 min | Fail what is outstanding, close it |
+
+That last row is the boundary that stops a sweep polling forever. A child whose
+message Redis lost stays `queued`, so it is never "abandoned" and never
+resolves, and the all-children-finished close can never fire — the sweep, and
+the frontend polling it, would otherwise wait indefinitely on it.
 
 ## Scaling note
 
