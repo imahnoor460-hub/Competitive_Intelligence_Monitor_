@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends,HTTPException
 from sqlalchemy.orm import Session 
 from app.core.config import settings
@@ -8,6 +10,8 @@ from app.core.security import hash_password
 from app.schemas.auth import UserLogin
 from app.dependencies import enforce_rate_limit, get_current_user
 from app.core.security import (verify_password,create_access_token)
+
+logger = logging.getLogger(__name__)
 
 router=APIRouter(
     prefix="/auth",
@@ -115,6 +119,28 @@ def demo_login(
     if not settings.demo_user_email or not settings.demo_user_password:
         # 404, not 403: a deployment without a demo should not advertise that
         # the endpoint exists at all.
+        #
+        # Logged as a warning because to anyone reading an access log this is
+        # indistinguishable from the route not being deployed — which is
+        # exactly the wrong diagnosis, and cost a debugging session. The
+        # caller still learns nothing; the operator gets told which variable
+        # is missing. Warning level on purpose: nothing configures logging in
+        # this app, so the root logger sits at WARNING and an info line would
+        # not appear in the platform's logs at all.
+        missing = [
+            name
+            for name, value in (
+                ("DEMO_USER_EMAIL", settings.demo_user_email),
+                ("DEMO_USER_PASSWORD", settings.demo_user_password),
+            )
+            if not value
+        ]
+        logger.warning(
+            "POST /auth/demo-login answered 404: the route is deployed but "
+            "unconfigured — %s not set on this service. This is not a missing "
+            "route.",
+            " and ".join(missing),
+        )
         raise HTTPException(status_code=404, detail="Not found")
 
     # One shared bucket rather than per-workspace, since there is no caller

@@ -101,6 +101,25 @@ def test_a_deployment_without_a_demo_hides_the_endpoint(client, monkeypatch):
     assert client.post("/auth/demo-login").status_code == 404
 
 
+def test_an_unconfigured_404_says_so_in_the_logs(client, monkeypatch, caplog):
+    """In an access log this 404 is indistinguishable from the route not being
+    deployed, which is the wrong diagnosis and cost a real debugging session.
+    The caller still learns nothing; the operator gets told which variable is
+    missing."""
+
+    monkeypatch.setattr(settings, "demo_user_email", None)
+    monkeypatch.setattr(settings, "demo_user_password", "set-but-useless-alone")
+
+    with caplog.at_level("WARNING"):
+        assert client.post("/auth/demo-login").status_code == 404
+
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "DEMO_USER_EMAIL" in logged
+    assert "not a missing route" in logged
+    # The variable that *is* set must not be named as missing.
+    assert "DEMO_USER_PASSWORD" not in logged
+
+
 def test_a_configured_but_unprovisioned_demo_fails_closed(client, monkeypatch):
     """Environment set, `scripts/provision_demo.py` never run — no user row to
     authenticate, so no session."""
