@@ -92,9 +92,9 @@ export default function ApprovalsPage() {
   if (!contextReady || loading) return null;
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 860 }}>
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 860 }}>
       <div className="flex flex-col gap-[7px]">
-        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Approval queue</h1>
+        <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Approval queue</h1>
         <p className="m-0 max-w-[560px] text-[13.5px] text-[var(--text-muted)]">
           Nothing reaches Slack, email, or a CRM until a reviewer signs off here.
         </p>
@@ -116,7 +116,7 @@ export default function ApprovalsPage() {
             return (
               <div
                 key={item.id}
-                className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5"
+                className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5">
@@ -141,14 +141,14 @@ export default function ApprovalsPage() {
                 </div>
 
                 <div
-                  className="rounded-r-lg border-l-2 px-4 py-3"
+                  className="rounded-r-lg border-l-2 px-3 py-3 sm:px-4"
                   style={{ borderColor: "var(--accent)", background: "var(--bg-nested)" }}
                 >
                   <span className="font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dim)]">
                     Preview of what will be sent
                   </span>
                   {briefing ? (
-                    <p className="mt-2 whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--text-secondary)]">
+                    <p className="mt-2 whitespace-pre-wrap max-sm:break-words text-[13px] leading-[1.6] text-[var(--text-secondary)]">
                       {briefing.body_markdown}
                     </p>
                   ) : battlecardUpdate ? (
@@ -162,7 +162,7 @@ export default function ApprovalsPage() {
                   )}
                 </div>
 
-                <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
+                <div className="flex flex-col items-start gap-3 border-t border-[var(--border-subtle)] pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <span className="font-mono text-[11px] text-[var(--text-faint)]">
                     Drafted by the agent &middot; waiting {relativeTime(item.requested_at)}
                   </span>
@@ -176,7 +176,7 @@ export default function ApprovalsPage() {
                     </span>
                   ) : (
                     canApprove && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 max-sm:flex-wrap">
                         <button
                           onClick={() =>
                             setNoteOpen((prev) => ({ ...prev, [item.id]: !prev[item.id] }))

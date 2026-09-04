@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useWorkspaceContext } from "@/lib/workspace-context";
@@ -15,9 +15,15 @@ import {
   GearIcon,
   PanelCollapseIcon,
   LogoutIcon,
+  CloseIcon,
 } from "./NavIcons";
 
 const COLLAPSE_STORAGE_KEY = "sidebar-collapsed";
+
+// Below this the sidebar is a drawer, not a column: a 244px rail leaves a
+// 320px portrait phone 76px of page, so it slides in over the content
+// instead. Matches Tailwind's `sm`, which every other portrait rule keys off.
+const DRAWER_MEDIA_QUERY = "(max-width: 639px)";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", Icon: GridIcon },
@@ -29,7 +35,15 @@ const NAV_ITEMS = [
   { href: "/settings/team", label: "Settings", Icon: GearIcon },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  open,
+  onClose,
+}: {
+  /** Drawer visibility. Only consulted below `sm`; the desktop rail is
+   * always on screen. */
+  open: boolean;
+  onClose: () => void;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, workspace, workspaces, switchWorkspace, createWorkspace, pendingApprovalsCount } =
@@ -41,6 +55,38 @@ export default function Sidebar() {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(COLLAPSE_STORAGE_KEY) === "1";
   });
+
+  // Read after mount rather than in the initial state so the server and the
+  // first client render agree.
+  const [isDrawer, setIsDrawer] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia(DRAWER_MEDIA_QUERY);
+    const sync = () => setIsDrawer(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open, onClose]);
+
+  // The drawer covers the page, so a tap that navigates has to close it —
+  // otherwise the destination is behind the panel.
+  useEffect(() => {
+    onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  // Collapsing is a desktop affordance: in the drawer there is room for the
+  // labels and no rail to reclaim, so it always renders expanded there.
+  const isCollapsed = collapsed && !isDrawer;
 
   function toggleCollapsed() {
     setCollapsed((prev) => {
@@ -73,17 +119,36 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`sticky top-0 flex h-screen flex-shrink-0 flex-col gap-6 border-r border-[var(--border-subtle)] bg-[var(--bg-sidebar)] py-[22px] transition-[width] duration-200 ${
-        collapsed ? "w-[68px] px-2.5" : "w-[244px] px-4"
-      }`}
+      // Below `sm` this is a fixed drawer sliding in over the page; from `sm`
+      // up every one of those rules is overridden back to the sticky column
+      // the desktop layout has always used.
+      // A closed drawer is off-screen, so it must not take tab focus either.
+      inert={isDrawer && !open}
+      className={`fixed inset-y-0 left-0 z-40 flex h-screen w-[244px] flex-shrink-0 flex-col gap-6 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-4 py-[22px] transition-transform duration-200 sm:sticky sm:top-0 sm:z-auto sm:translate-x-0 sm:overflow-visible sm:transition-[width] ${
+        open ? "translate-x-0" : "-translate-x-full"
+      } ${isCollapsed ? "sm:w-[68px] sm:px-2.5" : "sm:w-[244px] sm:px-4"}`}
     >
-      <div className={`flex items-center ${collapsed ? "flex-col gap-2.5" : "gap-[11px] px-2"}`}>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close menu"
+        className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-dim)] hover:bg-[var(--bg-nested)] hover:text-[var(--text-secondary)] sm:hidden"
+      >
+        <CloseIcon />
+      </button>
+      <div
+        className={`flex items-center ${
+          isCollapsed ? "flex-col gap-2.5 max-sm:pr-10" : "gap-[11px] px-2 max-sm:pr-10"
+        }`}
+      >
         <button
           type="button"
-          onClick={toggleCollapsed}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className={`flex min-w-0 items-center text-left ${collapsed ? "flex-col gap-2.5" : "flex-1 gap-[11px]"}`}
+          onClick={() => {
+            if (!isDrawer) toggleCollapsed();
+          }}
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className={`flex min-w-0 items-center text-left ${isCollapsed ? "flex-col gap-2.5" : "flex-1 gap-[11px]"}`}
         >
           <div className="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded-[9px] bg-[var(--accent)]">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -97,7 +162,7 @@ export default function Sidebar() {
               <circle cx="8" cy="8" r="5.6" stroke="var(--accent-on)" strokeWidth="1.2" opacity=".55" />
             </svg>
           </div>
-          {!collapsed && (
+          {!isCollapsed && (
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="truncate text-[13px] font-semibold tracking-tight">Intelligence Monitor</span>
               <span className="truncate font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dim)]">
@@ -106,20 +171,20 @@ export default function Sidebar() {
             </div>
           )}
         </button>
-        {!collapsed && (
+        {!isCollapsed && (
           <button
             type="button"
             onClick={toggleCollapsed}
             title="Collapse sidebar"
             aria-label="Collapse sidebar"
-            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-dim)] hover:bg-[var(--bg-nested)] hover:text-[var(--text-secondary)]"
+            className="hidden h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-dim)] hover:bg-[var(--bg-nested)] hover:text-[var(--text-secondary)] sm:flex"
           >
             <PanelCollapseIcon />
           </button>
         )}
       </div>
 
-      {!collapsed && (
+      {!isCollapsed && (
         <div className="flex flex-col gap-1.5 px-1">
           <select
             value={workspace?.id ?? ""}
@@ -155,7 +220,7 @@ export default function Sidebar() {
       )}
 
       <nav className="flex flex-col gap-[3px]">
-        {!collapsed && (
+        {!isCollapsed && (
           <div className="px-[10px] pb-2 font-mono text-[9.5px] uppercase tracking-[.14em] text-[var(--text-dimmer)]">
             Workspace
           </div>
@@ -166,9 +231,9 @@ export default function Sidebar() {
             <Link
               key={href}
               href={href}
-              title={collapsed ? label : undefined}
+              title={isCollapsed ? label : undefined}
               className={`relative flex items-center rounded-[9px] py-[9px] text-[13px] font-medium ${
-                collapsed ? "justify-center px-0" : "gap-[11px] px-[10px]"
+                isCollapsed ? "justify-center px-0" : "gap-[11px] px-[10px]"
               }`}
               style={{
                 background: active ? "#1A1F26" : "transparent",
@@ -176,7 +241,7 @@ export default function Sidebar() {
               }}
             >
               <Icon />
-              {!collapsed && <span>{label}</span>}
+              {!isCollapsed && <span>{label}</span>}
               {badge === "pending" && pendingApprovalsCount > 0 && (
                 <span
                   className={
@@ -185,7 +250,7 @@ export default function Sidebar() {
                       : "ml-auto flex h-[18px] min-w-[19px] items-center justify-center rounded-full bg-[var(--accent)] px-1.5 font-mono text-[10px] font-semibold text-[var(--accent-on)]"
                   }
                 >
-                  {!collapsed && pendingApprovalsCount}
+                  {!isCollapsed && pendingApprovalsCount}
                 </span>
               )}
             </Link>
@@ -194,14 +259,14 @@ export default function Sidebar() {
       </nav>
 
       <div className="mt-auto flex flex-col gap-2.5">
-        <div className={`flex items-center px-1.5 py-1 ${collapsed ? "flex-col gap-1.5" : "gap-2.5"}`}>
+        <div className={`flex items-center px-1.5 py-1 ${isCollapsed ? "flex-col gap-1.5" : "gap-2.5"}`}>
           <div
             title={user?.full_name ?? user?.email}
             className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[#242A34] font-mono text-[11px] font-semibold text-[var(--text-secondary)]"
           >
             {initials || "?"}
           </div>
-          {collapsed ? (
+          {isCollapsed ? (
             <button
               onClick={handleLogout}
               title="Log out"

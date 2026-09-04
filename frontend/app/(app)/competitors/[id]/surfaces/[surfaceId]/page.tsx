@@ -118,7 +118,7 @@ export default function SurfaceDetailPage() {
 
   if (!surface) {
     return (
-      <div className="flex flex-col gap-3 px-[34px] py-[30px]" style={{ maxWidth: 900 }}>
+      <div className="flex flex-col gap-3 px-4 py-5 sm:px-[34px] sm:py-[30px]" style={{ maxWidth: 900 }}>
         <p className="text-sm text-[var(--text-faint)]">Page not found.</p>
         <Link
           href={`/competitors/${competitorId}`}
@@ -133,7 +133,7 @@ export default function SurfaceDetailPage() {
   const typeStyle = SURFACE_TYPE_STYLES[surface.surface_type];
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 900 }}>
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 900 }}>
       <Link
         href={`/competitors/${competitorId}`}
         className="w-fit text-[12.5px] font-medium text-[var(--text-muted)] hover:text-[var(--accent)]"
@@ -141,10 +141,12 @@ export default function SurfaceDetailPage() {
         ← {competitor?.name ?? "Back"}
       </Link>
 
-      <div className="flex items-end justify-between gap-6">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div className="flex flex-col gap-[7px]">
-          <div className="flex items-center gap-2.5">
-            <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">{surfaceDisplayName(surface)}</h1>
+          <div className="flex items-center gap-2.5 max-sm:flex-wrap">
+            <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">
+              {surfaceDisplayName(surface)}
+            </h1>
             <span
               className="flex-shrink-0 rounded-md px-2 py-0.5 font-mono text-[11px] uppercase tracking-wide"
               style={{
@@ -159,7 +161,7 @@ export default function SurfaceDetailPage() {
             href={surface.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[13px] text-[var(--blue)] hover:underline"
+            className="max-sm:break-all text-[13px] text-[var(--blue)] hover:underline"
           >
             {surface.url}
           </a>
@@ -169,7 +171,7 @@ export default function SurfaceDetailPage() {
           </p>
         </div>
         {canEdit && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-sm:flex-wrap">
             <button
               onClick={handleCheckSurface}
               disabled={checkStatus.state === "checking"}
@@ -196,7 +198,7 @@ export default function SurfaceDetailPage() {
       )}
       {error && <p className="rounded-lg bg-red-950/50 px-3 py-2 text-sm text-red-300">{error}</p>}
 
-      <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5">
+      <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5">
         <h2 className="m-0 flex items-center gap-2 text-[14.5px] font-semibold tracking-[-0.01em]">
           <HeadingDot />
           Change log

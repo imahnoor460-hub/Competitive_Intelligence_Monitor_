@@ -393,10 +393,10 @@ export default function DashboardPage() {
   if (!contextReady || loading) return null;
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 1320 }}>
-      <div className="flex items-end justify-between gap-6">
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 1320 }}>
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div className="flex flex-col gap-[7px]">
-          <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Intelligence overview</h1>
+          <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Intelligence overview</h1>
           <p className="m-0 max-w-[600px] text-[13.5px] text-[var(--text-muted)]">
             {competitors.length} competitor{competitors.length === 1 ? "" : "s"} watched. The
             agent scores materiality, classifies every change, and holds each briefing at the
@@ -418,7 +418,7 @@ export default function DashboardPage() {
       )}
 
       <Card>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col max-sm:gap-1.5 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">Competitors</h2>
           <span className="font-mono text-[11px] text-[var(--text-faint)]">
             Add a homepage URL — pricing, blog, changelog and jobs pages are found automatically
@@ -455,23 +455,26 @@ export default function DashboardPage() {
           )}
         </div>
         {canEdit && (
-          <form onSubmit={handleAddCompetitor} className="flex items-center gap-2">
+          <form
+            onSubmit={handleAddCompetitor}
+            className="flex flex-col gap-2 sm:flex-row sm:items-center"
+          >
             <input
               value={newCompetitorName}
               onChange={(e) => setNewCompetitorName(e.target.value)}
               placeholder="Competitor name"
-              className="h-8 w-40 rounded-lg border border-[var(--border-input)] bg-[var(--bg-input)] px-3 text-xs text-[var(--text-primary)]"
+              className="h-8 w-full rounded-lg sm:w-40 border border-[var(--border-input)] bg-[var(--bg-input)] px-3 text-xs text-[var(--text-primary)]"
             />
             <input
               value={newCompetitorUrl}
               onChange={(e) => setNewCompetitorUrl(e.target.value)}
               placeholder="https://theircompany.com"
-              className="h-8 flex-1 max-w-xs rounded-lg border border-[var(--border-input)] bg-[var(--bg-input)] px-3 text-xs text-[var(--text-primary)]"
+              className="h-8 w-full flex-1 rounded-lg sm:max-w-xs border border-[var(--border-input)] bg-[var(--bg-input)] px-3 text-xs text-[var(--text-primary)]"
             />
             <button
               type="submit"
               disabled={creatingCompetitor || !newCompetitorName.trim()}
-              className="h-8 rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50"
+              className="h-8 w-full rounded-lg sm:w-auto bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50"
             >
               {creatingCompetitor ? "Adding..." : "Add competitor"}
             </button>
@@ -493,17 +496,20 @@ export default function DashboardPage() {
             Your website — the benchmark every competitor is measured against
           </span>
           {canEdit ? (
-            <form onSubmit={handleSaveOwnSite} className="flex items-center gap-2">
+            <form
+              onSubmit={handleSaveOwnSite}
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
+            >
               <input
                 value={ownSiteUrl}
                 onChange={(e) => setOwnSiteUrl(e.target.value)}
                 placeholder={ownSite ? ownSite.url : "https://yourcompany.com"}
-                className="h-8 flex-1 max-w-xs rounded-lg border border-[var(--border-input)] bg-[var(--bg-input)] px-3 text-xs text-[var(--text-primary)]"
+                className="h-8 w-full flex-1 rounded-lg sm:max-w-xs border border-[var(--border-input)] bg-[var(--bg-input)] px-3 text-xs text-[var(--text-primary)]"
               />
               <button
                 type="submit"
                 disabled={savingOwnSite || !ownSiteUrl.trim()}
-                className="h-8 rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50"
+                className="h-8 w-full rounded-lg sm:w-auto bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50"
               >
                 {savingOwnSite ? "Saving..." : ownSite ? "Update" : "Set your website"}
               </button>
@@ -550,7 +556,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[1.45fr_1fr]">
         <Card>
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-4 max-sm:flex-wrap max-sm:gap-y-2">
             <div className="flex flex-col gap-[5px]">
               <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">
                 Detection vs. materiality
@@ -559,7 +565,7 @@ export default function DashboardPage() {
                 Daily volume, past {TREND_DAYS} days
               </p>
             </div>
-            <div className="flex gap-[14px] pt-[3px]">
+            <div className="flex gap-[14px] pt-[3px] max-sm:flex-shrink-0">
               <LegendDot color="var(--blue)" label="Detected" />
               <LegendDot color="var(--accent)" label="Material" />
             </div>
@@ -610,7 +616,7 @@ export default function DashboardPage() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-sm:flex-wrap max-sm:gap-x-4 max-sm:gap-y-1">
           <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">
             Competitor comparison
           </h2>
@@ -623,7 +629,45 @@ export default function DashboardPage() {
             No competitors yet — add one above to get started.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="flex flex-col gap-2.5 sm:hidden">
+            {comparisonTable.map((row) => (
+              <div
+                key={row.id}
+                className="flex flex-col gap-2.5 rounded-[12px] border border-[var(--border-subtle)] p-3"
+                style={{ background: row.isOwnSite ? "var(--accent-wash)" : "var(--bg-nested)" }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <Link
+                    href={`/competitors/${row.id}`}
+                    className={`truncate text-[13px] font-medium ${
+                      row.isOwnSite ? "text-[var(--accent)]" : ""
+                    }`}
+                  >
+                    {row.name}
+                  </Link>
+                  {row.dominantClassification ? (
+                    <ClassificationBadge classification={row.dominantClassification} />
+                  ) : (
+                    <span className="text-[12px] text-[var(--text-faint)]">—</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  <ComparisonStat label="Changes" value={row.changesDetected} />
+                  <ComparisonStat label="Material" value={row.materialCount} />
+                  <ComparisonStat
+                    label="Avg materiality"
+                    value={row.avgMateriality !== null ? (row.avgMateriality / 100).toFixed(2) : "—"}
+                  />
+                  <ComparisonStat
+                    label="Last change"
+                    value={row.lastChangeAt ? new Date(row.lastChangeAt).toLocaleDateString() : "—"}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[640px] border-collapse">
               <thead>
                 <tr className="border-b border-[var(--border-subtle)] font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dimmer)]">
@@ -681,11 +725,12 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-sm:flex-wrap max-sm:gap-x-4 max-sm:gap-y-1">
           <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">
             Highest-materiality moves
           </h2>
@@ -699,7 +744,7 @@ export default function DashboardPage() {
           </p>
         ) : (
           <div className="flex flex-col">
-            <div className="grid grid-cols-[112px_1fr_132px_78px] gap-[14px] border-b border-[var(--border-subtle)] px-1 pb-[9px] font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dimmer)]">
+            <div className="hidden grid-cols-[112px_1fr_132px_78px] gap-[14px] border-b border-[var(--border-subtle)] px-1 pb-[9px] font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dimmer)] sm:grid">
               <span>Competitor</span>
               <span>What changed</span>
               <span>Class</span>
@@ -708,20 +753,23 @@ export default function DashboardPage() {
             {topMoves.map((log, i) => (
               <div
                 key={log.id}
-                className="grid grid-cols-[112px_1fr_132px_78px] items-center gap-[14px] px-1 py-[13px]"
+                className="flex flex-col gap-1.5 px-1 py-[13px] sm:grid sm:grid-cols-[112px_1fr_132px_78px] sm:items-center sm:gap-[14px]"
                 style={{ borderBottom: i < topMoves.length - 1 ? "1px solid var(--border-subtler)" : undefined }}
               >
                 <span className="truncate text-[12.5px] font-medium">{competitorName(log.competitor_id)}</span>
                 <span className="truncate text-[12.5px] text-[var(--text-secondary)]">
                   {log.rationale ?? log.diff ?? "—"}
                 </span>
-                <ClassificationBadge classification={log.classification} />
-                <span
-                  className="font-mono text-xs"
-                  style={{ color: classificationColor(log.classification) }}
-                >
-                  {((log.materiality_score ?? 0) / 100).toFixed(2)}
-                </span>
+                {/* Two cells on the desktop grid, one line on a phone. */}
+                <div className="flex items-center gap-2.5 sm:contents">
+                  <ClassificationBadge classification={log.classification} />
+                  <span
+                    className="font-mono text-xs"
+                    style={{ color: classificationColor(log.classification) }}
+                  >
+                    {((log.materiality_score ?? 0) / 100).toFixed(2)}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -733,8 +781,19 @@ export default function DashboardPage() {
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-[16px] rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5">
+    <div className="flex flex-col gap-[16px] rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5">
       {children}
+    </div>
+  );
+}
+
+function ComparisonStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dimmer)]">
+        {label}
+      </span>
+      <span className="font-mono text-[12px] text-[var(--text-secondary)]">{value}</span>
     </div>
   );
 }
@@ -766,12 +825,15 @@ function StatTile({
   href?: string;
 }) {
   const content = (
-    <div className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-5 py-[18px]">
+    <div className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-5 sm:py-[18px]">
       <span className="font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-faint)]">
         {label}
       </span>
       <div className="flex items-baseline gap-[9px]">
-        <span className="text-[30px] font-semibold tracking-[-0.03em]" style={{ color: valueColor }}>
+        <span
+          className="text-[26px] font-semibold tracking-[-0.03em] sm:text-[30px]"
+          style={{ color: valueColor }}
+        >
           {value}
         </span>
       </div>

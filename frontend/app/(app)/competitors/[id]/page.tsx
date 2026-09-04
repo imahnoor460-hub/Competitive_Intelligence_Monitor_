@@ -304,7 +304,7 @@ export default function CompetitorDetailPage() {
 
   if (!data) {
     return (
-      <div className="flex flex-col gap-3 px-[34px] py-[30px]" style={{ maxWidth: 900 }}>
+      <div className="flex flex-col gap-3 px-4 py-5 sm:px-[34px] sm:py-[30px]" style={{ maxWidth: 900 }}>
         <p className="text-sm text-[var(--text-faint)]">{error ?? "Competitor not found."}</p>
         <Link href="/" className="text-sm font-medium text-[var(--accent)] hover:text-[var(--accent-hover)]">
           Back to dashboard
@@ -317,15 +317,15 @@ export default function CompetitorDetailPage() {
   const benchmarkIsOwnSite = benchmark?.competitor.is_own_site === true;
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 1100 }}>
-      <div className="flex items-end justify-between gap-6">
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 1100 }}>
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div className="flex flex-col gap-[7px]">
-          <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">{competitor.name}</h1>
+          <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">{competitor.name}</h1>
           {workspace && (
             <p className="m-0 text-[13.5px] text-[var(--text-muted)]">{workspace.name}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-sm:flex-wrap">
           {canEdit && (
             <button
               onClick={handleDeleteCompetitor}
@@ -380,7 +380,7 @@ export default function CompetitorDetailPage() {
               setSiteSummaryOpen((v) => !v);
             }
           }}
-          className="flex cursor-pointer items-center justify-between gap-4"
+          className="flex cursor-pointer flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
         >
           <div className="flex items-center gap-2.5">
             <span
@@ -556,13 +556,13 @@ export default function CompetitorDetailPage() {
       </div>
 
       <Card>
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">
             {competitor.name}
             {benchmark ? ` vs. ${benchmarkIsOwnSite ? "your website" : benchmark.competitor.name}` : ""}
           </h2>
           {!benchmarkIsOwnSite && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 max-sm:flex-wrap">
               <span className="font-mono text-[10px] uppercase tracking-[.1em] text-[var(--text-faint)]">
                 No website set — compare against
               </span>
@@ -588,7 +588,7 @@ export default function CompetitorDetailPage() {
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-[14px] font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dimmer)]">
+            <div className="grid grid-cols-[1.5fr_1fr_1fr] gap-2 font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dimmer)] sm:grid-cols-3 sm:gap-[14px]">
               <span></span>
               <span className="text-right">{competitor.name}</span>
               <span className="text-right text-[var(--accent)]">
@@ -636,7 +636,7 @@ export default function CompetitorDetailPage() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-sm:flex-wrap max-sm:gap-x-4 max-sm:gap-y-1">
           <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">Battlecard</h2>
           <Link href="/battlecards" className="text-xs font-medium text-[var(--accent)] hover:text-[var(--accent-hover)]">
             Manage →
@@ -647,7 +647,7 @@ export default function CompetitorDetailPage() {
             <p className="m-0 font-mono text-[11px] text-[var(--text-faint)]">
               Version {battlecard.version}
             </p>
-            <pre className="whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--text-secondary)]">
+            <pre className="whitespace-pre-wrap max-sm:break-words text-[13px] leading-[1.6] text-[var(--text-secondary)]">
               {battlecard.content_markdown || "(empty)"}
             </pre>
           </>
@@ -667,7 +667,7 @@ export default function CompetitorDetailPage() {
               setPagesOpen((v) => !v);
             }
           }}
-          className="flex cursor-pointer items-center justify-between gap-3"
+          className="flex cursor-pointer flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
         >
           <h2 className="m-0 flex items-center gap-2 text-[14.5px] font-semibold tracking-[-0.01em]">
             <span
@@ -683,7 +683,7 @@ export default function CompetitorDetailPage() {
             </span>
           </h2>
           {canEdit && surfaces.length > 0 && (
-            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 max-sm:flex-wrap" onClick={(e) => e.stopPropagation()}>
               {discoverMessage && (
                 <span className="text-[11.5px] text-[var(--text-muted)]">{discoverMessage}</span>
               )}
@@ -715,7 +715,7 @@ export default function CompetitorDetailPage() {
                 <Link
                   key={s.id}
                   href={`/competitors/${competitorId}/surfaces/${s.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors"
+                  className="flex flex-col items-start gap-2 px-3 py-3 transition-colors sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4"
                   style={{
                     borderLeft: `3px solid ${rowColor}`,
                     borderBottom: i < surfaces.length - 1 ? "1px solid var(--border-subtler)" : undefined,
@@ -728,8 +728,8 @@ export default function CompetitorDetailPage() {
                     e.currentTarget.style.background = `color-mix(in srgb, ${rowColor} 6%, var(--bg-nested))`;
                   }}
                 >
-                  <div className="min-w-0">
-                    <p className="m-0 flex items-center gap-2 text-[13px] font-medium">
+                  <div className="min-w-0 max-sm:max-w-full">
+                    <p className="m-0 flex items-center gap-2 text-[13px] font-medium max-sm:flex-wrap max-sm:gap-y-1">
                       <span
                         className="flex-shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide"
                         style={{
@@ -751,7 +751,7 @@ export default function CompetitorDetailPage() {
                       {s.last_checked_at && ` · last checked ${new Date(s.last_checked_at).toLocaleString()}`}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
                     {status.state === "done" && (
                       <span className="text-[11.5px] text-[var(--text-muted)]">{status.message}</span>
                     )}
@@ -786,7 +786,7 @@ export default function CompetitorDetailPage() {
         {pagesOpen && canEdit && (
           <form
             onSubmit={handleAddSurface}
-            className="flex flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-4 py-3.5 sm:flex-row sm:items-end"
+            className="flex flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-3 py-3.5 sm:flex-row sm:items-end sm:px-4"
           >
             <div className="flex flex-col gap-1.5">
               <label className={labelClass}>Type</label>
@@ -813,7 +813,7 @@ export default function CompetitorDetailPage() {
                 className={inputClass}
               />
             </div>
-            <div className="flex-1 flex-col gap-1.5">
+            <div className="flex flex-1 flex-col gap-1.5">
               <label className={labelClass}>URL</label>
               <input
                 required
@@ -839,7 +839,7 @@ export default function CompetitorDetailPage() {
             </div>
             <button
               type="submit"
-              className="h-8 w-fit rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)]"
+              className="h-8 w-full rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] sm:w-fit"
             >
               Add surface
             </button>
@@ -876,7 +876,7 @@ export default function CompetitorDetailPage() {
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-[16px] rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5">
+    <div className="flex flex-col gap-[16px] rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5">
       {children}
     </div>
   );
@@ -884,11 +884,13 @@ function Card({ children }: { children: React.ReactNode }) {
 
 function StatTile({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-5 py-[18px]">
+    <div className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-5 sm:py-[18px]">
       <span className="font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-faint)]">
         {label}
       </span>
-      <span className="text-[30px] font-semibold tracking-[-0.03em]">{value}</span>
+      <span className="max-sm:break-words text-[22px] font-semibold tracking-[-0.03em] sm:text-[30px]">
+        {value}
+      </span>
     </div>
   );
 }
@@ -903,7 +905,7 @@ function ComparisonRow({
   right: string | number;
 }) {
   return (
-    <div className="grid grid-cols-3 items-center gap-[14px] border-t border-[var(--border-subtler)] py-2.5">
+    <div className="grid grid-cols-[1.5fr_1fr_1fr] items-center gap-2 border-t border-[var(--border-subtler)] py-2.5 sm:grid-cols-3 sm:gap-[14px]">
       <span className="text-[12.5px] text-[var(--text-secondary)]">{label}</span>
       <span className="text-right font-mono text-[13px] font-medium">{left}</span>
       <span className="text-right font-mono text-[13px] font-medium text-[var(--accent)]">{right}</span>

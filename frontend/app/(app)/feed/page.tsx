@@ -29,7 +29,8 @@ export default function ChangeFeedPage() {
   const { startBriefingJob } = useBriefingJobs();
   const searchParams = useSearchParams();
   const highlightId = Number(searchParams.get("highlight")) || null;
-  const logRefs = useRef<Record<number, HTMLTableRowElement | null>>({});
+  const rowRefs = useRef<Record<number, HTMLElement | null>>({});
+  const cardRefs = useRef<Record<number, HTMLElement | null>>({});
 
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [surfacesById, setSurfacesById] = useState<Record<number, Surface>>({});
@@ -105,7 +106,11 @@ export default function ChangeFeedPage() {
   useEffect(() => {
     if (!highlightId || loading) return;
     setOpenRows((prev) => (prev.has(highlightId) ? prev : new Set(prev).add(highlightId)));
-    const el = logRefs.current[highlightId];
+    // `offsetParent` is null for the copy its breakpoint has hidden, so this
+    // scrolls whichever of the two layouts is actually on screen.
+    const el = [cardRefs.current[highlightId], rowRefs.current[highlightId]].find(
+      (node) => node && node.offsetParent !== null
+    );
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [highlightId, loading, changeLogs]);
 
@@ -156,19 +161,59 @@ export default function ChangeFeedPage() {
     }
   }
 
+  // The expanded body is identical in both layouts, so it is built once here
+  // rather than kept in step in two places.
+  function renderDetail(log: ChangeLog, surface: Surface | undefined, isNoise: boolean) {
+    return (
+      <div className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <ChangeCard log={log} surface={surface} />
+
+        <div className="flex items-center gap-3 max-sm:flex-wrap">
+          {isNoise ? (
+            <button
+              onClick={() => unmarkNoise(log.id)}
+              className="h-7 rounded-md border border-[var(--border-input)] px-2.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:border-[var(--border-hover)]"
+            >
+              Restore to feed
+            </button>
+          ) : (
+            <button
+              onClick={() => markAsNoise(log.id)}
+              className="h-7 rounded-md border border-[var(--border-input)] px-2.5 text-[11.5px] font-medium text-[var(--text-faint)] hover:border-[var(--border-hover)] hover:text-[var(--text-secondary)]"
+            >
+              Mark as noise
+            </button>
+          )}
+          {queued[log.id] ? (
+            <span className="text-[11.5px] font-medium text-[var(--teal)]">
+              Queued — you&apos;ll get a notification when it&apos;s ready
+            </span>
+          ) : (
+            <button
+              onClick={() => draftBriefing(log)}
+              className="h-7 rounded-md bg-[var(--accent)] px-2.5 text-[11.5px] font-semibold text-[var(--accent-on)] disabled:opacity-50"
+            >
+              Draft briefing
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!contextReady || loading) return null;
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 1100 }}>
-      <div className="flex items-end justify-between gap-6">
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 1100 }}>
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div className="flex flex-col gap-[7px]">
-          <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Change feed</h1>
+          <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Change feed</h1>
           <p className="m-0 max-w-[560px] text-[13.5px] text-[var(--text-muted)]">
             Every detected change, newest first. Draft a briefing straight from any moment that
             matters.
           </p>
         </div>
-        <label className="flex h-8 items-center gap-2 rounded-lg border border-[var(--border-input)] bg-[var(--bg-card)] px-3 text-xs font-medium text-[var(--text-secondary)]">
+        <label className="flex h-8 items-center gap-2 max-sm:flex-shrink-0 rounded-lg border border-[var(--border-input)] bg-[var(--bg-card)] px-3 text-xs font-medium text-[var(--text-secondary)]">
           <input
             type="checkbox"
             checked={materialOnly}
@@ -184,7 +229,7 @@ export default function ChangeFeedPage() {
       )}
 
       {filteredCount > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-4 py-2.5 text-xs text-[var(--text-muted)]">
+        <div className="flex items-center justify-between rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-4 py-2.5 text-xs text-[var(--text-muted)] max-sm:flex-wrap max-sm:gap-2">
           <span>
             {filteredCount} change{filteredCount === 1 ? "" : "s"} filtered as noise
           </span>
@@ -200,7 +245,69 @@ export default function ChangeFeedPage() {
       {visibleLogs.length === 0 ? (
         <p className="text-sm text-[var(--text-faint)]">No changes match this view yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)]">
+        <>
+        {/* Seven columns need 760px. Portrait gets the same rows — every
+            column included — as tappable cards instead. */}
+        <div className="flex flex-col gap-2.5 sm:hidden">
+          {visibleLogs.map((log) => {
+            const surface = surfacesById[log.surface_id];
+            const isNoise = noiseIds.has(log.id);
+            const isOpen = openRows.has(log.id);
+            const score = log.materiality_score;
+            const { color: scoreColor } = materialityStyle(score ?? 0);
+
+            return (
+              <div
+                key={log.id}
+                ref={(el) => {
+                  cardRefs.current[log.id] = el;
+                }}
+                className="rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] p-3.5"
+                style={{
+                  background: log.id === highlightId ? "var(--accent-wash)" : undefined,
+                  opacity: isNoise ? 0.55 : 1,
+                }}
+              >
+                <button
+                  onClick={() => toggleRow(log.id)}
+                  aria-expanded={isOpen}
+                  className="flex w-full flex-col gap-2 text-left"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 flex-1 text-[13px] font-medium">
+                      {competitorName(log.competitor_id)}
+                    </span>
+                    <span
+                      className="font-mono text-[12px]"
+                      style={{ color: score !== null ? scoreColor : "var(--text-dim)" }}
+                    >
+                      {score !== null ? (score / 100).toFixed(2) : "—"}
+                    </span>
+                    <span className="text-[var(--text-faint)]">{isOpen ? "▾" : "▸"}</span>
+                  </div>
+                  <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--text-secondary)]">
+                    {log.headline || log.rationale || (log.diff ? "Content change detected" : "—")}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <ClassificationBadge classification={log.classification} />
+                    <span className="min-w-0 truncate font-mono text-[11px] text-[var(--text-dim)]">
+                      {surface ? surfaceDisplayName(surface) : "—"}
+                    </span>
+                    <span className="ml-auto font-mono text-[11px] text-[var(--text-faint)]">
+                      {relativeTime(log.created_at)}
+                    </span>
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="mt-3 border-t border-[var(--border-subtler)] pt-3">
+                    {renderDetail(log, surface, isNoise)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden overflow-x-auto rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] sm:block">
           <table className="w-full min-w-[760px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-[var(--border-subtle)] font-mono text-[9.5px] uppercase tracking-[.13em] text-[var(--text-dimmer)]">
@@ -227,7 +334,7 @@ export default function ChangeFeedPage() {
                   <Fragment key={log.id}>
                     <tr
                       ref={(el) => {
-                        logRefs.current[log.id] = el;
+                        rowRefs.current[log.id] = el;
                       }}
                       onClick={() => toggleRow(log.id)}
                       className="cursor-pointer transition-colors hover:bg-[var(--bg-nested)]"
@@ -265,39 +372,7 @@ export default function ChangeFeedPage() {
                         }}
                       >
                         <td colSpan={7} className="px-[22px] py-4">
-                          <div className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
-                            <ChangeCard log={log} surface={surface} />
-
-                            <div className="flex items-center gap-3">
-                              {isNoise ? (
-                                <button
-                                  onClick={() => unmarkNoise(log.id)}
-                                  className="h-7 rounded-md border border-[var(--border-input)] px-2.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:border-[var(--border-hover)]"
-                                >
-                                  Restore to feed
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => markAsNoise(log.id)}
-                                  className="h-7 rounded-md border border-[var(--border-input)] px-2.5 text-[11.5px] font-medium text-[var(--text-faint)] hover:border-[var(--border-hover)] hover:text-[var(--text-secondary)]"
-                                >
-                                  Mark as noise
-                                </button>
-                              )}
-                              {queued[log.id] ? (
-                                <span className="text-[11.5px] font-medium text-[var(--teal)]">
-                                  Queued — you&apos;ll get a notification when it&apos;s ready
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => draftBriefing(log)}
-                                  className="h-7 rounded-md bg-[var(--accent)] px-2.5 text-[11.5px] font-semibold text-[var(--accent-on)] disabled:opacity-50"
-                                >
-                                  Draft briefing
-                                </button>
-                              )}
-                            </div>
-                          </div>
+                          {renderDetail(log, surface, isNoise)}
                         </td>
                       </tr>
                     )}
@@ -307,6 +382,7 @@ export default function ChangeFeedPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, MouseEvent } from "react";
+import { useEffect, useMemo, useState, MouseEvent } from "react";
 
 export interface DualTrendPoint {
   date: string;
@@ -10,12 +10,28 @@ export interface DualTrendPoint {
 
 const WIDTH = 534;
 const HEIGHT = 196;
+// The viewBox scales uniformly to the container, so the desktop 534×196 box
+// is only ~90px tall once it is squeezed into a 288px portrait card. A
+// narrower box at the same height keeps the trend legible there.
+const NARROW_WIDTH = 300;
+const NARROW_MEDIA_QUERY = "(max-width: 639px)";
 const PADDING = { top: 12, right: 12, bottom: 20, left: 12 };
 
 export default function DualTrendChart({ data }: { data: DualTrendPoint[] }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  // Resolved after mount so the server and the first client render agree.
+  const [narrow, setNarrow] = useState(false);
 
-  const innerWidth = WIDTH - PADDING.left - PADDING.right;
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_MEDIA_QUERY);
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const width = narrow ? NARROW_WIDTH : WIDTH;
+  const innerWidth = width - PADDING.left - PADDING.right;
   const innerHeight = HEIGHT - PADDING.top - PADDING.bottom;
   const maxCount = Math.max(1, ...data.map((d) => d.detected));
 
@@ -44,7 +60,7 @@ export default function DualTrendChart({ data }: { data: DualTrendPoint[] }) {
   function handleMove(e: MouseEvent<SVGSVGElement>) {
     if (points.length === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * WIDTH;
+    const x = ((e.clientX - rect.left) / rect.width) * width;
     let nearest = 0;
     let nearestDist = Infinity;
     points.forEach((p, i) => {
@@ -62,7 +78,7 @@ export default function DualTrendChart({ data }: { data: DualTrendPoint[] }) {
   return (
     <div>
       <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        viewBox={`0 0 ${width} ${HEIGHT}`}
         className="w-full overflow-visible"
         onMouseMove={handleMove}
         onMouseLeave={() => setHoverIndex(null)}
@@ -79,7 +95,7 @@ export default function DualTrendChart({ data }: { data: DualTrendPoint[] }) {
           <line
             key={f}
             x1={PADDING.left}
-            x2={WIDTH - PADDING.right}
+            x2={width - PADDING.right}
             y1={PADDING.top + innerHeight * f}
             y2={PADDING.top + innerHeight * f}
             stroke="var(--border-subtle)"

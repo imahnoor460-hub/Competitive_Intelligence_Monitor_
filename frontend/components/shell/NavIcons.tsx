@@ -97,3 +97,19 @@ export function LogoutIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function MenuIcon({ className }: IconProps) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2.2 4h11.6M2.2 8h11.6M2.2 12h11.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function CloseIcon({ className }: IconProps) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M3.6 3.6l8.8 8.8M12.4 3.6l-8.8 8.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}

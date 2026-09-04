@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,14 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Competitive Intelligence Monitor",
   description: "Watch competitor pricing, changelogs, and product pages for material changes.",
+};
+
+// Stated rather than left to the framework default: the portrait layouts
+// below are all measured in CSS pixels at device width, and a missing
+// viewport tag makes a phone render them at 980px and scale down.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

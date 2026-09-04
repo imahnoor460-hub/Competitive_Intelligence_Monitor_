@@ -69,10 +69,14 @@ function CardHeader({
 }) {
   const dt = createdAt ? new Date(createdAt) : null;
   return (
-    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-      <div className="flex min-w-0 flex-col gap-1">
+    // The date sits beside the headline on desktop; on a phone that leaves the
+    // headline a ~110px column, so it wraps underneath instead.
+    <div className="mb-3 flex flex-wrap items-start justify-between gap-2 max-sm:gap-y-1.5">
+      <div className="flex min-w-0 flex-col gap-1 max-sm:w-full">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[16px] font-bold text-[var(--text-primary)]">{title}</span>
+          <span className="text-[15px] font-bold text-[var(--text-primary)] max-sm:min-w-0 max-sm:break-words sm:text-[16px]">
+            {title}
+          </span>
           <span
             className="flex-shrink-0 rounded-full px-2.5 py-1 text-[12px] font-medium"
             style={{
@@ -96,7 +100,7 @@ function CardHeader({
         )}
       </div>
       {dt && (
-        <div className="flex flex-shrink-0 flex-col items-end text-[12px] text-[var(--text-faint)]">
+        <div className="flex flex-shrink-0 flex-row items-baseline gap-1.5 text-[12px] text-[var(--text-faint)] sm:flex-col sm:items-end sm:gap-0">
           <span>{dt.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span>
           <span>{dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
         </div>
@@ -130,7 +134,7 @@ function StatTiles({ items }: { items: ChangeItem[] }) {
   return (
     <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
       {entries.map((type) => (
-        <div key={type} className="rounded-xl bg-[var(--bg-track)] px-3.5 py-3">
+        <div key={type} className="rounded-xl bg-[var(--bg-track)] px-3 py-2.5 sm:px-3.5 sm:py-3">
           <div className="text-[12.5px] text-[var(--text-faint)]">{CHANGE_TYPE_TILE_LABELS[type]}</div>
           <div
             className="mt-0.5 text-[19px] font-bold"
@@ -146,7 +150,41 @@ function StatTiles({ items }: { items: ChangeItem[] }) {
 
 function ChangeItemsTable({ items }: { items: ChangeItem[] }) {
   return (
-    <div className="mt-4 overflow-x-auto">
+    <>
+    <div className="mt-3 flex flex-col gap-2 sm:hidden">
+      {items.map((row, i) => {
+        const style = CHANGE_TYPE_STYLES[row.change_type];
+        return (
+          <div
+            key={i}
+            className="flex flex-col gap-1.5 rounded-lg border border-[var(--border-subtler)] px-3 py-2.5"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <span className="min-w-0 flex-1 text-[13px] text-[var(--text-secondary)]">{row.item}</span>
+              <span
+                className="flex-shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11.5px] font-medium"
+                style={{
+                  background: `color-mix(in srgb, ${style.color} 18%, transparent)`,
+                  color: style.color,
+                }}
+              >
+                {style.label(row.change_pct)}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-baseline gap-1.5 text-[13px]">
+              {row.before && (
+                <>
+                  <span className="text-[var(--text-dim)] line-through">{row.before}</span>
+                  <span className="text-[var(--text-dim)]">→</span>
+                </>
+              )}
+              <span className="font-semibold text-[var(--text-primary)]">{row.after}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+    <div className="mt-4 hidden overflow-x-auto sm:block">
       <table className="w-full min-w-[420px] border-collapse text-[13.5px]">
         <thead>
           <tr className="border-b border-[var(--border-subtle)] text-[12px] text-[var(--text-faint)]">
@@ -187,6 +225,7 @@ function ChangeItemsTable({ items }: { items: ChangeItem[] }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -218,7 +257,7 @@ export function BaselineCard({ snapshot, surface }: { snapshot: Snapshot; surfac
       : null;
 
   return (
-    <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-5 py-4">
+    <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-3.5 py-3.5 sm:px-5 sm:py-4">
       <CardHeader
         title={title}
         pillLabel="Current snapshot"
@@ -260,7 +299,7 @@ export function BaselineCard({ snapshot, surface }: { snapshot: Snapshot; surfac
             {showRaw ? "Hide raw text" : "Raw text"}
           </button>
           {showRaw && (
-            <pre className="mt-2 max-h-[280px] overflow-y-auto overflow-x-auto whitespace-pre-wrap rounded-lg border border-[var(--border-subtler)] bg-[var(--bg-page)] p-3 font-mono text-[11.5px] text-[var(--text-dim)]">
+            <pre className="mt-2 max-h-[280px] overflow-y-auto overflow-x-auto whitespace-pre-wrap max-sm:break-words rounded-lg border border-[var(--border-subtler)] bg-[var(--bg-page)] p-3 font-mono text-[11.5px] text-[var(--text-dim)]">
               {snapshot.text_content}
             </pre>
           )}
@@ -290,7 +329,7 @@ export function ChangeCard({
   const visibleItems = hasItems ? (showAllItems ? log.items! : log.items!.slice(0, 5)) : [];
 
   return (
-    <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-5 py-4">
+    <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-3.5 py-3.5 sm:px-5 sm:py-4">
       <CardHeader
         title={title}
         pillLabel={hasItems ? `${log.items!.length} change${log.items!.length === 1 ? "" : "s"}` : "Change"}
@@ -323,7 +362,7 @@ export function ChangeCard({
             )}
           </div>
           {showRaw && log.diff && (
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg border border-[var(--border-subtler)] bg-[var(--bg-page)] p-3 font-mono text-[11.5px] text-[var(--text-dim)]">
+            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap max-sm:break-words rounded-lg border border-[var(--border-subtler)] bg-[var(--bg-page)] p-3 font-mono text-[11.5px] text-[var(--text-dim)]">
               {log.diff}
             </pre>
           )}
@@ -354,7 +393,7 @@ export function ChangeCard({
                 {showRaw ? "Hide raw diff" : "Raw diff"}
               </button>
               {showRaw && (
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg border border-[var(--border-subtler)] bg-[var(--bg-page)] p-3 font-mono text-[11.5px] text-[var(--text-dim)]">
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap max-sm:break-words rounded-lg border border-[var(--border-subtler)] bg-[var(--bg-page)] p-3 font-mono text-[11.5px] text-[var(--text-dim)]">
                   {log.diff}
                 </pre>
               )}

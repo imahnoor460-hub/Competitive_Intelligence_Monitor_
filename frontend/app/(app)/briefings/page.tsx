@@ -110,9 +110,9 @@ export default function BriefingsPage() {
   if (!contextReady || loading) return null;
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 860 }}>
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 860 }}>
       <div className="flex flex-col gap-[7px]">
-        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Briefings</h1>
+        <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Briefings</h1>
         <p className="m-0 max-w-[560px] text-[13.5px] text-[var(--text-muted)]">
           Digest drafts assembled from detected changes, held for approval before anything reaches
           Slack, email, or a CRM.
@@ -124,7 +124,7 @@ export default function BriefingsPage() {
       )}
 
       {canEdit && (
-        <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5">
+        <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5">
           <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">
             Generate a briefing
           </h2>
@@ -210,7 +210,7 @@ export default function BriefingsPage() {
             <button
               type="submit"
               disabled={generating || selectedIds.length === 0}
-              className="h-8 w-fit rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50"
+              className="h-8 w-full rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50 sm:w-fit"
             >
               {generating ? "Queuing..." : "Generate briefing"}
             </button>
@@ -227,7 +227,7 @@ export default function BriefingsPage() {
             {Array.from({ length: activeJobCount }).map((_, i) => (
               <div
                 key={`generating-${i}`}
-                className="flex items-center gap-2.5 rounded-[14px] border border-dashed border-[var(--border-hover)] bg-[var(--bg-card)] px-[22px] py-5"
+                className="flex items-center gap-2.5 rounded-[14px] border border-dashed border-[var(--border-hover)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5"
               >
                 <span
                   className="h-2 w-2 flex-shrink-0 rounded-full"
@@ -239,7 +239,7 @@ export default function BriefingsPage() {
             {briefings.map((b) => (
               <div
                 key={b.id}
-                className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5"
+                className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[14.5px] font-semibold tracking-tight">{b.title}</span>
@@ -253,7 +253,7 @@ export default function BriefingsPage() {
                   {b.audience} &middot; {b.digest_type} &middot;{" "}
                   {new Date(b.created_at).toLocaleString()}
                 </p>
-                <div className="text-[13px] leading-[1.6] text-[var(--text-secondary)]">
+                <div className="max-sm:break-words text-[13px] leading-[1.6] text-[var(--text-secondary)]">
                   {renderMarkdown(b.body_markdown)}
                 </div>
               </div>

@@ -35,7 +35,7 @@ export default function RegisterPage() {
     <div className="flex flex-1 items-center justify-center bg-[var(--bg-page)] px-4">
       <form
         onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-5 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] p-7"
+        className="flex w-full max-w-sm flex-col gap-5 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] p-5 sm:p-7"
       >
         <div className="flex items-center gap-[11px]">
           <div className="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded-[9px] bg-[var(--accent)]">

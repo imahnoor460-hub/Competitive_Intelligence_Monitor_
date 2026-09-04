@@ -123,9 +123,9 @@ export default function IntegrationsSettingsPage() {
 
   if (!canEdit) {
     return (
-      <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 780 }}>
+      <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 780 }}>
         <div className="flex flex-col gap-[7px]">
-          <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Integrations</h1>
+          <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Integrations</h1>
           <p className="m-0 max-w-[560px] text-[13.5px] text-[var(--text-muted)]">
             Deliver approved briefings to Slack and email.
           </p>
@@ -141,9 +141,9 @@ export default function IntegrationsSettingsPage() {
   const emailIntegration = findIntegration("email");
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 780 }}>
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 780 }}>
       <div className="flex flex-col gap-[7px]">
-        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Integrations</h1>
+        <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Integrations</h1>
         <p className="m-0 max-w-[560px] text-[13.5px] text-[var(--text-muted)]">
           Deliver approved briefings to Slack and email. Nothing sends until it clears the approval
           queue.
@@ -154,7 +154,7 @@ export default function IntegrationsSettingsPage() {
         <p className="rounded-lg bg-red-950/50 px-3 py-2 text-sm text-red-300">{error}</p>
       )}
 
-      <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5">
+      <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5">
         <div className="flex items-center justify-between">
           <span className="font-mono text-[11px] uppercase tracking-[.13em] text-[var(--text-faint)]">
             Slack
@@ -173,7 +173,7 @@ export default function IntegrationsSettingsPage() {
               className="rounded-lg border border-[var(--border-input)] bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-secondary)]"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="submit"
               disabled={saving.slack}
@@ -206,7 +206,7 @@ export default function IntegrationsSettingsPage() {
         </form>
       </div>
 
-      <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5">
+      <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5">
         <div className="flex items-center justify-between">
           <span className="font-mono text-[11px] uppercase tracking-[.13em] text-[var(--text-faint)]">
             Email
@@ -229,7 +229,7 @@ export default function IntegrationsSettingsPage() {
               SMTP server is configured via the backend environment, not here.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="submit"
               disabled={saving.email}

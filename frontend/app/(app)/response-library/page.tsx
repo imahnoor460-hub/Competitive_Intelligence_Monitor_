@@ -90,9 +90,9 @@ export default function ResponseLibraryPage() {
   if (!contextReady || loading) return null;
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 1000 }}>
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 1000 }}>
       <div className="flex flex-col gap-[7px]">
-        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Response library</h1>
+        <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Response library</h1>
         <p className="m-0 max-w-[560px] text-[13.5px] text-[var(--text-muted)]">
           Reusable, pre-approved answers your team can drop straight into a conversation.
         </p>
@@ -103,7 +103,7 @@ export default function ResponseLibraryPage() {
       )}
 
       {canEdit && (
-        <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5">
+        <div className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5">
           <h2 className="m-0 text-[14.5px] font-semibold tracking-[-0.01em]">Add a response</h2>
           <form onSubmit={handleCreate} className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
@@ -125,7 +125,7 @@ export default function ResponseLibraryPage() {
                 className="rounded-lg border border-[var(--border-input)] bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-secondary)]"
               />
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <div className="flex flex-1 flex-col gap-1.5">
                 <label className="text-xs font-medium text-[var(--text-secondary)]">
                   Competitor (optional)
@@ -158,7 +158,7 @@ export default function ResponseLibraryPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="h-8 w-fit rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50"
+              className="h-8 w-full rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50 sm:w-fit"
             >
               {submitting ? "Saving..." : "Save"}
             </button>
@@ -175,7 +175,7 @@ export default function ResponseLibraryPage() {
             {items.map((item) => (
               <div
                 key={item.id}
-                className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5"
+                className="flex flex-col gap-3 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[14.5px] font-semibold tracking-tight">{item.title}</span>
@@ -203,7 +203,7 @@ export default function ResponseLibraryPage() {
                     </span>
                   ))}
                 </div>
-                <p className="whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--text-secondary)]">
+                <p className="whitespace-pre-wrap max-sm:break-words text-[13px] leading-[1.6] text-[var(--text-secondary)]">
                   {item.body_markdown}
                 </p>
               </div>

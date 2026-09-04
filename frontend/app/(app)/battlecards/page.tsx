@@ -132,9 +132,9 @@ export default function BattlecardsPage() {
   if (!contextReady || loading) return null;
 
   return (
-    <div className="flex flex-col gap-[18px] px-[34px] py-[30px] pb-[44px]" style={{ maxWidth: 1000 }}>
+    <div className="flex flex-col gap-[18px] px-4 py-5 pb-10 sm:px-[34px] sm:py-[30px] sm:pb-[44px]" style={{ maxWidth: 1000 }}>
       <div className="flex flex-col gap-[7px]">
-        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.025em]">Battlecards</h1>
+        <h1 className="m-0 text-[22px] font-semibold tracking-[-0.025em] sm:text-[26px]">Battlecards</h1>
         <p className="m-0 max-w-[560px] text-[13.5px] text-[var(--text-muted)]">
           Live positioning per competitor. Propose updates from detected changes — each revision
           waits for approval before it replaces the current version.
@@ -158,7 +158,7 @@ export default function BattlecardsPage() {
             return (
               <div
                 key={c.id}
-                className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-[22px] py-5"
+                className="flex flex-col gap-4 rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] px-4 py-4 sm:px-[22px] sm:py-5"
               >
                 <button
                   onClick={() => toggleExpand(c.id)}
@@ -180,8 +180,8 @@ export default function BattlecardsPage() {
                 {isExpanded && (
                   <div className="flex flex-col gap-4 border-t border-[var(--border-subtle)] pt-4">
                     {battlecard ? (
-                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-4 py-3">
-                        <p className="whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--text-secondary)]">
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-nested)] px-3 py-3 sm:px-4">
+                        <p className="whitespace-pre-wrap max-sm:break-words text-[13px] leading-[1.6] text-[var(--text-secondary)]">
                           {battlecard.content_markdown || "(empty)"}
                         </p>
                       </div>
@@ -202,7 +202,7 @@ export default function BattlecardsPage() {
                           <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-lg border border-[var(--border-subtle)] p-2">
                             {competitorChangeLogs.map((log) => (
                               <li key={log.id}>
-                                <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                                <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] max-sm:flex-wrap">
                                   <input
                                     type="checkbox"
                                     checked={selectedIds.includes(log.id)}
@@ -211,7 +211,7 @@ export default function BattlecardsPage() {
                                   <span className="rounded-md bg-[var(--bg-track)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
                                     {log.classification ?? "unscored"}
                                   </span>
-                                  <span className="truncate">
+                                  <span className="truncate max-sm:min-w-0 max-sm:flex-1">
                                     {log.rationale ?? log.diff ?? `#${log.id}`}
                                   </span>
                                 </label>
@@ -224,7 +224,7 @@ export default function BattlecardsPage() {
                           disabled={
                             proposing[c.id] || activeCompetitorIds.includes(c.id) || selectedIds.length === 0
                           }
-                          className="h-8 w-fit rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50"
+                          className="h-8 w-full rounded-lg bg-[var(--accent)] px-3 text-xs font-semibold text-[var(--accent-on)] disabled:opacity-50 sm:w-fit"
                         >
                           {activeCompetitorIds.includes(c.id)
                             ? "Generating..."

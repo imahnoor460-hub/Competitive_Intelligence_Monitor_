@@ -60,7 +60,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ push }}>
       {children}
-      <div className="pointer-events-none fixed right-5 top-5 z-50 flex flex-col gap-2.5" style={{ maxWidth: 340 }}>
+      <div className="pointer-events-none fixed left-4 right-4 top-4 z-50 flex flex-col gap-2.5 sm:left-auto sm:right-5 sm:top-5 sm:max-w-[340px]">
         {toasts.map((toast) => {
           const style = TONE_STYLES[toast.tone];
           const content = (

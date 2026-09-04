@@ -32,9 +32,11 @@ export default function DonutChart({
   );
 
   return (
-    <div className="flex items-center gap-[18px]">
-      <div className="relative h-[164px] w-[164px] flex-shrink-0">
-        <svg width="164" height="164" viewBox="0 0 164 164">
+    // A 164px ring beside its legend needs ~300px. Below `sm` the ring shrinks
+    // and the legend moves under it, so both stay readable on a 320px screen.
+    <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-[18px]">
+      <div className="relative h-[140px] w-[140px] flex-shrink-0 sm:h-[164px] sm:w-[164px]">
+        <svg viewBox="0 0 164 164" className="h-full w-full">
           <circle cx="82" cy="82" r={radius} fill="none" stroke="var(--bg-track)" strokeWidth="22" />
           <g transform="rotate(-90 82 82)" fill="none" strokeWidth="22">
             {segments.map((d) => {
@@ -61,7 +63,7 @@ export default function DonutChart({
           </span>
         </div>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-[11px]">
+      <div className="flex w-full min-w-0 flex-1 flex-col gap-[11px]">
         {data.length === 0 ? (
           <p className="text-xs text-[var(--text-faint)]">No data yet.</p>
         ) : (
